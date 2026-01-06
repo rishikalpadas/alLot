@@ -159,9 +159,6 @@ class PartiesPanel(QWidget):
                 background-color: #E3F2FD;
                 color: #1976D2;
             }
-            QTableWidget::item:hover {
-                background-color: #F5F5F5;
-            }
             QHeaderView::section {
                 background-color: #FAFAFA;
                 padding: 10px 8px;
@@ -396,7 +393,16 @@ class PartiesPanel(QWidget):
                         self.table.removeRow(row)
                         self.removing_row = False
                         return True
+                # If no new row, clear selection
+                self.table.clearSelection()
+                return True
         return super().eventFilter(obj, event)
+    
+    def mousePressEvent(self, event):
+        """Clear selection when clicking outside the table."""
+        if not self.table.geometry().contains(event.pos()):
+            self.table.clearSelection()
+        super().mousePressEvent(event)
     
     def add_party(self):
         """Add new party with inline editing."""

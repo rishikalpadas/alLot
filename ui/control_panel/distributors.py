@@ -163,9 +163,6 @@ class DistributorsPanel(QWidget):
                 background-color: #E3F2FD;
                 color: #1976D2;
             }
-            QTableWidget::item:hover {
-                background-color: #F5F5F5;
-            }
             QHeaderView::section {
                 background-color: #FAFAFA;
                 padding: 10px 8px;
@@ -421,7 +418,16 @@ class DistributorsPanel(QWidget):
                         self.table.removeRow(row)
                         self.removing_row = False
                         return True
+                # If no new row, clear selection
+                self.table.clearSelection()
+                return True
         return super().eventFilter(obj, event)
+    
+    def mousePressEvent(self, event):
+        """Clear selection when clicking outside the table."""
+        if not self.table.geometry().contains(event.pos()):
+            self.table.clearSelection()
+        super().mousePressEvent(event)
     
     def toggle_all_checkboxes(self):
         """Toggle all row checkboxes."""
