@@ -14,6 +14,8 @@ class DistributorsPanel(QWidget):
     
     def __init__(self):
         super().__init__()
+        self.removing_row = False  # Flag to prevent re-entrancy
+        self.all_selected = False
         self.init_ui()
         self.load_distributors()
     
@@ -55,11 +57,11 @@ class DistributorsPanel(QWidget):
         """)
         button_layout.addWidget(add_btn)
         
-        edit_btn = QPushButton(" Edit")
-        edit_btn.setIcon(qta.icon('fa5s.edit', color='white'))
-        edit_btn.clicked.connect(self.edit_distributor)
-        edit_btn.setCursor(Qt.PointingHandCursor)
-        edit_btn.setStyleSheet("""
+        self.edit_btn = QPushButton(" Edit")
+        self.edit_btn.setIcon(qta.icon('fa5s.edit', color='white'))
+        self.edit_btn.clicked.connect(self.edit_distributor)
+        self.edit_btn.setCursor(Qt.PointingHandCursor)
+        self.edit_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2196F3;
                 color: white;
@@ -76,13 +78,13 @@ class DistributorsPanel(QWidget):
                 background-color: #0a6ebd;
             }
         """)
-        button_layout.addWidget(edit_btn)
+        button_layout.addWidget(self.edit_btn)
         
-        delete_btn = QPushButton(" Delete")
-        delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
-        delete_btn.clicked.connect(self.delete_distributor)
-        delete_btn.setCursor(Qt.PointingHandCursor)
-        delete_btn.setStyleSheet("""
+        self.delete_btn = QPushButton(" Delete")
+        self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
+        self.delete_btn.clicked.connect(self.delete_distributor)
+        self.delete_btn.setCursor(Qt.PointingHandCursor)
+        self.delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
                 color: white;
@@ -99,7 +101,11 @@ class DistributorsPanel(QWidget):
                 background-color: #b71c1c;
             }
         """)
-        button_layout.addWidget(delete_btn)
+        button_layout.addWidget(self.delete_btn)
+        
+        # Initially hide edit and delete buttons
+        self.edit_btn.setVisible(False)
+        self.delete_btn.setVisible(False)
         
         button_layout.addStretch()
         layout.addLayout(button_layout)
@@ -126,6 +132,7 @@ class DistributorsPanel(QWidget):
         
         # Connect itemChanged for inline editing workflow
         self.table.itemChanged.connect(self.on_item_changed)
+        self.table.itemSelectionChanged.connect(self.update_buttons)
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
         
         # Install event filter to catch Escape key before editor consumes it
@@ -134,6 +141,7 @@ class DistributorsPanel(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # Enable Ctrl+click multi-select
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setFocusPolicy(Qt.NoFocus)  # Disable individual cell focus
         self.table.setAlternatingRowColors(True)
         self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
         
@@ -235,29 +243,55 @@ class DistributorsPanel(QWidget):
                 # Serial number - center aligned
                 serial_item = QTableWidgetItem(str(row + 1))
                 serial_item.setTextAlignment(Qt.AlignCenter)
-                serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
+                serial_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
                 self.table.setItem(row, 0, serial_item)
                 
                 # Display ID - center aligned
                 id_item = QTableWidgetItem(dist.display_id or f"D{dist.id:03d}")
                 id_item.setTextAlignment(Qt.AlignCenter)
-                id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
+                id_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
                 self.table.setItem(row, 1, id_item)
                 
                 # Name - center aligned
                 name_item = QTableWidgetItem(dist.name)
                 name_item.setTextAlignment(Qt.AlignCenter)
-                name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+                name_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
                 self.table.setItem(row, 2, name_item)
                 
                 # Purchase Rate - center aligned
                 rate_item = QTableWidgetItem(f"₹ {dist.purchase_rate:.2f}")
                 rate_item.setTextAlignment(Qt.AlignCenter)
-                rate_item.setFlags(rate_item.flags() & ~Qt.ItemIsEditable)
+                rate_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
                 rate_item.setData(Qt.UserRole, dist.id)
                 self.table.setItem(row, 3, rate_item)
         finally:
             session.close()
+    
+    def update_buttons(self):
+        """Update button visibility based on selection."""
+        selected_rows = self.table.selectionModel().selectedRows()
+        count = len(selected_rows)
+        
+        # Check if any selected row is a new row (serial = "*")
+        has_new_row = False
+        for index in selected_rows:
+            serial_item = self.table.item(index.row(), 0)
+            if serial_item and serial_item.text() == "*":
+                has_new_row = True
+                break
+        
+        if has_new_row or count == 0:
+            # No selection or new row selected: hide both buttons
+            self.edit_btn.setVisible(False)
+            self.delete_btn.setVisible(False)
+        elif count == 1:
+            # Single selection: show both buttons
+            self.edit_btn.setVisible(True)
+            self.delete_btn.setVisible(True)
+        else:
+            # Multiple selection: show only delete button
+            self.edit_btn.setVisible(False)
+            self.delete_btn.setVisible(True)
     
     def save_new_row(self, row):
         """Save the new distributor row to database."""
@@ -352,6 +386,9 @@ class DistributorsPanel(QWidget):
     
     def on_selection_changed(self):
         """Cancel new row when clicking elsewhere."""
+        if self.removing_row:  # Prevent re-entrancy
+            return
+        
         current_row = self.table.currentRow()
         if current_row < 0:
             return
@@ -362,18 +399,28 @@ class DistributorsPanel(QWidget):
             if serial_item and serial_item.text() == "*":
                 # If clicking on a different row, cancel the new row
                 if row != current_row:
-                    # Temporarily disconnect to avoid recursion
-                    self.table.itemSelectionChanged.disconnect(self.on_selection_changed)
+                    self.removing_row = True
                     self.table.removeRow(row)
-                    self.table.itemSelectionChanged.connect(self.on_selection_changed)
+                    self.removing_row = False
                 return
     
     def eventFilter(self, obj, event):
         """Event filter to catch Escape key before editor consumes it."""
         if obj == self.table and event.type() == event.Type.KeyPress:
             if event.key() == Qt.Key_Escape:
-                if self.cancel_new_row():
-                    return True  # Event handled
+                if self.removing_row:  # Prevent re-entrancy
+                    return True
+                # Check if there's a new row being edited
+                for row in range(self.table.rowCount()):
+                    serial_item = self.table.item(row, 0)
+                    if serial_item and serial_item.text() == "*":
+                        # Close any open editor first
+                        self.removing_row = True
+                        self.table.closePersistentEditor(self.table.currentItem())
+                        # Then remove the row
+                        self.table.removeRow(row)
+                        self.removing_row = False
+                        return True
         return super().eventFilter(obj, event)
     
     def toggle_all_checkboxes(self):
@@ -440,25 +487,32 @@ class DistributorsPanel(QWidget):
             QMessageBox.warning(self, "No Selection", "Please select a distributor to edit.")
             return
         
-        # Get distributor_id from checkbox widget
+        # Get distributor_id from the selected row
         row = selected_rows[0].row()
-        checkbox_widget = self.table.cellWidget(row, 0)
-        checkbox = checkbox_widget.findChild(QCheckBox)
-        distributor_id = checkbox.property("distributor_id")
-        dialog = DistributorDialog(self, distributor_id)
-        if dialog.exec():
-            self.load_distributors()
+        rate_item = self.table.item(row, 3)
+        if rate_item:
+            distributor_id = rate_item.data(Qt.UserRole)
+            if distributor_id:
+                dialog = DistributorDialog(self, distributor_id)
+                if dialog.exec():
+                    self.load_distributors()
     
     def delete_distributor(self):
         """Delete selected distributor(s)."""
-        # Collect checked distributors
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select at least one distributor to delete.")
+            return
+        
+        # Get distributor IDs from selected rows
         selected_ids = []
-        for row in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox and checkbox.isChecked():
-                    selected_ids.append(checkbox.property("distributor_id"))
+        for index in selected_rows:
+            row = index.row()
+            rate_item = self.table.item(row, 3)
+            if rate_item:
+                dist_id = rate_item.data(Qt.UserRole)
+                if dist_id:
+                    selected_ids.append(dist_id)
         
         if not selected_ids:
             QMessageBox.warning(self, "No Selection", "Please select at least one distributor to delete.")

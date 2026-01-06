@@ -6,7 +6,7 @@ from PySide6.QtGui import QFont, QAction
 from ui.dashboard_home import DashboardHome
 from ui.control_panel.distributors import DistributorsPanel
 from ui.control_panel.parties import PartiesPanel
-from ui.control_panel.products import ProductsPanel
+from ui.control_panel.products import TicketsPanel
 from ui.control_panel.settings import SettingsPanel
 from ui.purchase_window import PurchaseWindow
 from ui.sale_window import SaleWindow
@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
         # Create control panel screens first (needed for control panel home)
         self.distributors_panel = DistributorsPanel()
         self.parties_panel = PartiesPanel()
-        self.products_panel = ProductsPanel()
+        self.products_panel = TicketsPanel()
         self.settings_panel = SettingsPanel()
         
         # Control panel home screen (uses panels created above)
