@@ -2,8 +2,8 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
                                QLineEdit, QLabel, QMessageBox, QHeaderView, QCheckBox)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon, QKeyEvent
 import qtawesome as qta
 import re
 from database.models import Product
@@ -19,13 +19,23 @@ class ProductsPanel(QWidget):
         self.load_products()
     
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(30, 30, 30, 30)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(30, 30, 30, 30)
         
         title = QLabel("Tickets Management")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(title)
+        main_layout.addWidget(title)
+        
+        # Horizontal layout for table and options side by side
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(30)
+        
+        # Left side - Table section
+        table_container = QWidget()
+        table_layout = QVBoxLayout(table_container)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(15)
         
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
@@ -100,7 +110,7 @@ class ProductsPanel(QWidget):
         button_layout.addWidget(delete_btn)
         
         button_layout.addStretch()
-        layout.addLayout(button_layout)
+        table_layout.addLayout(button_layout)
         
         self.table = QTableWidget()
         self.table.setColumnCount(3)
@@ -109,21 +119,31 @@ class ProductsPanel(QWidget):
         # Hide row numbers
         self.table.verticalHeader().setVisible(False)
         
-        # Set column widths
+        # Set column widths to match distributors table width (~530px total)
         self.table.setColumnWidth(0, 40)   # Checkbox column
         self.table.setColumnWidth(1, 50)   # # column
+        self.table.setColumnWidth(2, 440)  # Name column - fixed width
+        
+        # Set fixed table width
+        self.table.setFixedWidth(540)
         
         # Disable horizontal scrollbar and column resizing
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Name column stretches
         header.sectionClicked.connect(self.header_clicked)
+        
+        # Connect itemChanged for inline editing workflow
+        self.table.itemChanged.connect(self.on_item_changed)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
+        
+        # Set row height for better visibility during editing
+        self.table.verticalHeader().setDefaultSectionSize(38)
+        
         self.table.setStyleSheet("""
             QTableWidget {
                 gridline-color: #E8E8E8;
@@ -204,7 +224,42 @@ class ProductsPanel(QWidget):
             }
         """
         
-        layout.addWidget(self.table)
+        table_layout.addWidget(self.table)
+        
+        # Add table container to content layout
+        content_layout.addWidget(table_container)
+        
+        # Right side - Options section
+        options_container = QWidget()
+        options_layout = QVBoxLayout(options_container)
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setSpacing(15)
+        
+        # Placeholder for future options
+        options_title = QLabel("Quick Actions")
+        options_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #424242;")
+        options_layout.addWidget(options_title)
+        
+        # Placeholder text
+        placeholder = QLabel("Additional options will be\nadded here")
+        placeholder.setStyleSheet("""
+            color: #999;
+            font-size: 13px;
+            padding: 20px;
+            border: 2px dashed #E0E0E0;
+            border-radius: 6px;
+            background-color: #FAFAFA;
+        """)
+        placeholder.setAlignment(Qt.AlignCenter)
+        placeholder.setMinimumHeight(200)
+        options_layout.addWidget(placeholder)
+        
+        options_layout.addStretch()
+        
+        content_layout.addWidget(options_container)
+        content_layout.addStretch()
+        
+        main_layout.addLayout(content_layout)
         
         # Track select all state
         self.all_selected = False
@@ -256,6 +311,70 @@ class ProductsPanel(QWidget):
         finally:
             session.close()
     
+    def save_new_row(self, row):
+        """Save the new ticket row to database."""
+        name_item = self.table.item(row, 2)
+        
+        if not name_item:
+            return False
+            
+        name = name_item.text().strip().upper()
+        
+        if not name:
+            QMessageBox.warning(self, "Validation Error", "Name is required.")
+            return False
+        
+        # Validate format: capital letters followed by numbers
+        if not re.match(r'^[A-Z]+\d+$', name):
+            QMessageBox.warning(
+                self, 
+                "Validation Error", 
+                "Name must be in format: Capital letters + numbers\n(e.g., M5, D30, E200, E100)"
+            )
+            return False
+        
+        session = db_manager.get_session()
+        try:
+            # Create new ticket
+            product = Product(
+                sku=name,
+                name=name,
+                unit="pcs",
+                hsn_code=None,
+                tax_rate=0.0,
+                description=None
+            )
+            session.add(product)
+            session.commit()
+            
+            # Reload the table
+            self.load_products()
+            
+            # Add another new row for quick entry
+            self.add_product()
+            
+            return True
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(self, "Error", f"Error saving ticket: {str(e)}")
+            return False
+        finally:
+            session.close()
+    
+    def on_item_changed(self, item):
+        """Handle item changes for inline editing workflow."""
+        row = item.row()
+        col = item.column()
+        
+        # Check if this is a new row (serial = "*")
+        serial_item = self.table.item(row, 1)
+        if not serial_item or serial_item.text() != "*":
+            return
+        
+        # If name field was edited, save immediately
+        if col == 2 and item.text().strip():
+            self.save_new_row(row)
+    
     def toggle_all_checkboxes(self):
         """Toggle all row checkboxes."""
         self.all_selected = not self.all_selected
@@ -277,9 +396,36 @@ class ProductsPanel(QWidget):
             self.toggle_all_checkboxes()
     
     def add_product(self):
-        dialog = ProductDialog(self)
-        if dialog.exec():
-            self.load_products()
+        """Add new ticket with inline editing."""
+        # Add new editable row at the top
+        self.table.insertRow(0)
+        
+        # Checkbox (disabled for new row)
+        checkbox = QCheckBox()
+        checkbox.setEnabled(False)
+        checkbox_widget = QWidget()
+        checkbox_layout = QHBoxLayout(checkbox_widget)
+        checkbox_layout.addWidget(checkbox)
+        checkbox_layout.setAlignment(Qt.AlignCenter)
+        checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        self.table.setCellWidget(0, 0, checkbox_widget)
+        
+        # Serial number
+        serial_item = QTableWidgetItem("*")
+        serial_item.setTextAlignment(Qt.AlignCenter)
+        serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
+        serial_item.setBackground(Qt.lightGray)
+        self.table.setItem(0, 1, serial_item)
+        
+        # Name - editable
+        name_item = QTableWidgetItem("")
+        name_item.setTextAlignment(Qt.AlignCenter)
+        name_item.setBackground(Qt.yellow)
+        self.table.setItem(0, 2, name_item)
+        
+        # Set focus on name field
+        self.table.setCurrentCell(0, 2)
+        self.table.editItem(name_item)
     
     def edit_product(self):
         selected_rows = self.table.selectedIndexes()
@@ -333,6 +479,20 @@ class ProductsPanel(QWidget):
                 QMessageBox.critical(self, "Error", f"Error deleting tickets: {str(e)}")
             finally:
                 session.close()
+    
+    def on_item_changed(self, item):
+        """Handle item changes for inline editing workflow."""
+        row = item.row()
+        col = item.column()
+        
+        # Check if this is a new row (serial = "*")
+        serial_item = self.table.item(row, 1)
+        if not serial_item or serial_item.text() != "*":
+            return
+        
+        # If name field was edited, save immediately
+        if col == 2 and item.text().strip():
+            self.save_new_row(row)
 
 
 class ProductDialog(QDialog):

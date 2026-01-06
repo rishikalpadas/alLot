@@ -2,8 +2,8 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
                                QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView, QCheckBox)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon, QKeyEvent
 import qtawesome as qta
 from database.models import Distributor
 from database.db_manager import db_manager
@@ -126,10 +126,17 @@ class DistributorsPanel(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Stretch)  # Last column stretches
         header.sectionClicked.connect(self.header_clicked)
         
+        # Connect itemChanged for inline editing workflow
+        self.table.itemChanged.connect(self.on_item_changed)
+        
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
+        
+        # Set row height for better visibility during editing
+        self.table.verticalHeader().setDefaultSectionSize(38)
+        
         self.table.setStyleSheet("""
             QTableWidget {
                 gridline-color: #E8E8E8;
@@ -272,6 +279,88 @@ class DistributorsPanel(QWidget):
         finally:
             session.close()
     
+    def save_new_row(self, row):
+        """Save the new distributor row to database."""
+        name_item = self.table.item(row, 3)
+        rate_item = self.table.item(row, 4)
+        
+        if not name_item or not rate_item:
+            return False
+            
+        name = name_item.text().strip()
+        rate_text = rate_item.text().strip()
+        
+        if not name or not rate_text:
+            QMessageBox.warning(self, "Validation Error", "Name and Purchase Rate are required.")
+            return False
+        
+        try:
+            purchase_rate = float(rate_text)
+        except ValueError:
+            QMessageBox.warning(self, "Validation Error", "Purchase Rate must be a valid number.")
+            return False
+        
+        if purchase_rate < 0:
+            QMessageBox.warning(self, "Validation Error", "Purchase Rate cannot be negative.")
+            return False
+        
+        session = db_manager.get_session()
+        try:
+            # Generate display_id
+            first_letter = name[0].upper() if name else 'D'
+            existing = session.query(Distributor).filter(
+                Distributor.display_id.like(f"{first_letter}%")
+            ).all()
+            max_num = 0
+            for dist in existing:
+                if dist.display_id and len(dist.display_id) > 1:
+                    try:
+                        num = int(dist.display_id[1:])
+                        max_num = max(max_num, num)
+                    except ValueError:
+                        pass
+            display_id = f"{first_letter}{max_num + 1:03d}"
+            
+            distributor = Distributor(
+                name=name,
+                purchase_rate=purchase_rate,
+                display_id=display_id
+            )
+            session.add(distributor)
+            session.commit()
+            
+            # Reload the table
+            self.load_distributors()
+            
+            # Add another new row for quick entry
+            self.add_distributor()
+            
+            return True
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(self, "Error", f"Error saving distributor: {str(e)}")
+            return False
+        finally:
+            session.close()
+    
+    def on_item_changed(self, item):
+        """Handle item changes for inline editing workflow."""
+        row = item.row()
+        col = item.column()
+        
+        # Check if this is a new row (serial = "*")
+        serial_item = self.table.item(row, 1)
+        if not serial_item or serial_item.text() != "*":
+            return
+        
+        # If name field was edited, move to rate field
+        if col == 3 and item.text().strip():
+            self.table.setCurrentCell(row, 4)
+            self.table.editItem(self.table.item(row, 4))
+        # If rate field was edited, save the row
+        elif col == 4 and item.text().strip():
+            self.save_new_row(row)
+    
     def toggle_all_checkboxes(self):
         """Toggle all row checkboxes."""
         self.all_selected = not self.all_selected
@@ -293,10 +382,49 @@ class DistributorsPanel(QWidget):
             self.toggle_all_checkboxes()
     
     def add_distributor(self):
-        """Add new distributor."""
-        dialog = DistributorDialog(self)
-        if dialog.exec():
-            self.load_distributors()
+        """Add new distributor with inline editing."""
+        # Add new editable row at the top
+        self.table.insertRow(0)
+        
+        # Checkbox (disabled for new row)
+        checkbox = QCheckBox()
+        checkbox.setEnabled(False)
+        checkbox_widget = QWidget()
+        checkbox_layout = QHBoxLayout(checkbox_widget)
+        checkbox_layout.addWidget(checkbox)
+        checkbox_layout.setAlignment(Qt.AlignCenter)
+        checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        self.table.setCellWidget(0, 0, checkbox_widget)
+        
+        # Serial number
+        serial_item = QTableWidgetItem("*")
+        serial_item.setTextAlignment(Qt.AlignCenter)
+        serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
+        serial_item.setBackground(Qt.lightGray)
+        self.table.setItem(0, 1, serial_item)
+        
+        # ID (will be auto-generated)
+        id_item = QTableWidgetItem("NEW")
+        id_item.setTextAlignment(Qt.AlignCenter)
+        id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
+        id_item.setBackground(Qt.lightGray)
+        self.table.setItem(0, 2, id_item)
+        
+        # Name - editable
+        name_item = QTableWidgetItem("")
+        name_item.setTextAlignment(Qt.AlignCenter)
+        name_item.setBackground(Qt.yellow)
+        self.table.setItem(0, 3, name_item)
+        
+        # Purchase Rate - editable
+        rate_item = QTableWidgetItem("")
+        rate_item.setTextAlignment(Qt.AlignCenter)
+        rate_item.setBackground(Qt.yellow)
+        self.table.setItem(0, 4, rate_item)
+        
+        # Set focus on name field
+        self.table.setCurrentCell(0, 3)
+        self.table.editItem(name_item)
     
     def edit_distributor(self):
         """Edit selected distributor."""
