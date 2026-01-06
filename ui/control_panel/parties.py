@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
                                QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView, QCheckBox)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
+import qtawesome as qta
 from database.models import Party
 from database.db_manager import db_manager
 
@@ -26,16 +28,75 @@ class PartiesPanel(QWidget):
         layout.addWidget(title)
         
         button_layout = QHBoxLayout()
-        add_btn = QPushButton("Add Party")
+        button_layout.setSpacing(10)
+        
+        add_btn = QPushButton(" Add Party")
+        add_btn.setIcon(qta.icon('fa5s.plus', color='white'))
         add_btn.clicked.connect(self.add_party)
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
         button_layout.addWidget(add_btn)
         
-        edit_btn = QPushButton("Edit Party")
+        edit_btn = QPushButton(" Edit")
+        edit_btn.setIcon(qta.icon('fa5s.edit', color='white'))
         edit_btn.clicked.connect(self.edit_party)
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #0b7dda;
+            }
+            QPushButton:pressed {
+                background-color: #0a6ebd;
+            }
+        """)
         button_layout.addWidget(edit_btn)
         
-        delete_btn = QPushButton("Delete Party")
+        delete_btn = QPushButton(" Delete")
+        delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         delete_btn.clicked.connect(self.delete_party)
+        delete_btn.setCursor(Qt.PointingHandCursor)
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:pressed {
+                background-color: #b71c1c;
+            }
+        """)
         button_layout.addWidget(delete_btn)
         
         button_layout.addStretch()
@@ -43,7 +104,7 @@ class PartiesPanel(QWidget):
         
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["☐", "#", "ID", "Name", "Sell Rate"])
+        self.table.setHorizontalHeaderLabels(["☑", "#", "ID", "Name", "Sell Rate"])
         
         # Hide row numbers
         self.table.verticalHeader().setVisible(False)
@@ -52,8 +113,8 @@ class PartiesPanel(QWidget):
         self.table.setColumnWidth(0, 40)   # Checkbox column
         self.table.setColumnWidth(1, 50)   # # column
         self.table.setColumnWidth(2, 80)   # ID column
-        self.table.setColumnWidth(3, 230)  # Name column - shrunk
-        self.table.setColumnWidth(4, 130)  # Sell Rate column
+        self.table.setColumnWidth(3, 250)  # Name column - expanded
+        self.table.setColumnWidth(4, 110)  # Sell Rate column - shrunk
         
         # Disable horizontal scrollbar and column resizing
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -68,20 +129,83 @@ class PartiesPanel(QWidget):
         self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
         self.table.setStyleSheet("""
             QTableWidget {
-                gridline-color: #E0E0E0;
+                gridline-color: #E8E8E8;
                 background-color: white;
+                border: 1px solid #E0E0E0;
+                border-radius: 6px;
             }
             QTableWidget::item {
-                padding: 8px;
+                padding: 10px 8px;
+                border-bottom: 1px solid #F0F0F0;
+            }
+            QTableWidget::item:selected {
+                background-color: #E3F2FD;
+                color: #1976D2;
+            }
+            QTableWidget::item:hover {
+                background-color: #F5F5F5;
             }
             QHeaderView::section {
-                background-color: #F5F5F5;
-                padding: 8px;
+                background-color: #FAFAFA;
+                padding: 10px 8px;
                 border: none;
-                border-bottom: 2px solid #E0E0E0;
+                border-bottom: 2px solid #2196F3;
+                border-right: 1px solid #E8E8E8;
                 font-weight: 600;
+                color: #424242;
+            }
+            QHeaderView::section:first {
+                border-top-left-radius: 6px;
+            }
+            QHeaderView::section:last {
+                border-top-right-radius: 6px;
+                border-right: none;
+            }
+            QHeaderView::section:hover {
+                background-color: #F0F0F0;
+                cursor: pointer;
+            }
+            /* Modern Scrollbar */
+            QScrollBar:vertical {
+                border: none;
+                background: #F5F5F5;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #BDBDBD;
+                border-radius: 5px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #9E9E9E;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
             }
         """)
+        
+        # Apply modern checkbox styling separately
+        self.checkbox_style = """
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                border: 2px solid #BDBDBD;
+                background-color: white;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #2196F3;
+                background-color: #E3F2FD;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2196F3;
+                border: 2px solid #2196F3;
+            }
+        """
         layout.addWidget(self.table)
         
         # Track select all state
@@ -95,30 +219,60 @@ class PartiesPanel(QWidget):
             self.table.setRowCount(len(parties))
             
             for row, party in enumerate(parties):
-                # Checkbox - centered in cell
+                # Checkbox - centered in cell with modern styling
                 checkbox = QCheckBox()
                 checkbox.setProperty("party_id", party.id)
+                checkbox.setStyleSheet(self.checkbox_style)
+                
+                # Set white checkmark icon for checked state
+                pixmap = qta.icon('fa5s.check', color='white').pixmap(16, 16)
+                checkbox.setProperty('checkedIcon', pixmap)
+                
+                # Update icon when toggled
+                def update_icon(checked, cb=checkbox):
+                    if checked:
+                        icon = qta.icon('fa5s.check', color='white')
+                        cb.setIcon(icon)
+                    else:
+                        cb.setIcon(QIcon())
+                
+                checkbox.toggled.connect(update_icon)
+                checkbox.setIconSize(checkbox.iconSize() * 0.6)
+                
+                # Center the checkbox
                 checkbox_widget = QWidget()
                 checkbox_layout = QHBoxLayout(checkbox_widget)
                 checkbox_layout.addWidget(checkbox)
                 checkbox_layout.setAlignment(Qt.AlignCenter)
                 checkbox_layout.setContentsMargins(0, 0, 0, 0)
                 self.table.setCellWidget(row, 0, checkbox_widget)
-                # Serial number
-                self.table.setItem(row, 1, QTableWidgetItem(str(row + 1)))
-                # Display ID (from database)
-                self.table.setItem(row, 2, QTableWidgetItem(party.display_id or f"P{party.id:03d}"))
-                # Name
-                self.table.setItem(row, 3, QTableWidgetItem(party.name))
-                # Sell Rate
-                self.table.setItem(row, 4, QTableWidgetItem(f"₹ {party.sell_rate:.2f}"))
+                
+                # Serial number - center aligned
+                serial_item = QTableWidgetItem(str(row + 1))
+                serial_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 1, serial_item)
+                
+                # Display ID - center aligned
+                id_item = QTableWidgetItem(party.display_id or f"P{party.id:03d}")
+                id_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 2, id_item)
+                
+                # Name - center aligned
+                name_item = QTableWidgetItem(party.name)
+                name_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 3, name_item)
+                
+                # Sell Rate - center aligned
+                rate_item = QTableWidgetItem(f"₹ {party.sell_rate:.2f}")
+                rate_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 4, rate_item)
         finally:
             session.close()
     
     def toggle_all_checkboxes(self):
         """Toggle all row checkboxes."""
         self.all_selected = not self.all_selected
-        # Update header label
+        # Update header label with better checkbox symbols
         header_item = self.table.horizontalHeaderItem(0)
         if header_item:
             header_item.setText("☑" if self.all_selected else "☐")
