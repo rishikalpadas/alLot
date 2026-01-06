@@ -1,7 +1,7 @@
 """Dashboard statistics service."""
 from datetime import datetime, timedelta
 from sqlalchemy import func, and_
-from database.models import Purchase, PurchaseItem, Sale, SaleItem
+from database.models import Purchase, PurchaseItem, Sale, SaleItem, Distributor, Party, Product, StockLedger
 from database.db_manager import db_manager
 
 
@@ -142,5 +142,57 @@ class DashboardService:
             }
             
             return chart_data
+        finally:
+            session.close()
+    
+    @staticmethod
+    def get_overview_stats():
+        """Get overview statistics: distributors, products, parties, and today's stock."""
+        session = db_manager.get_session()
+        try:
+            # Count distributors
+            distributor_count = session.query(func.count(Distributor.id)).scalar() or 0
+            
+            # Count ticket types (products)
+            product_count = session.query(func.count(Product.id)).scalar() or 0
+            
+            # Count parties
+            party_count = session.query(func.count(Party.id)).scalar() or 0
+            
+            # Calculate current stock (sum of all quantity deltas)
+            # Positive for purchases, negative for sales
+            stock_qty = session.query(
+                func.sum(StockLedger.quantity_delta)
+            ).scalar() or 0
+            
+            # Calculate stock value by aggregating purchase amounts minus sales
+            # For now, use a simple calculation based on recent purchase prices
+            # Get total purchased quantity and amount
+            purchase_stats = session.query(
+                func.sum(PurchaseItem.quantity),
+                func.sum(PurchaseItem.amount)
+            ).first()
+            
+            sale_stats = session.query(
+                func.sum(SaleItem.quantity)
+            ).scalar() or 0
+            
+            purchase_qty = purchase_stats[0] or 0
+            purchase_amt = purchase_stats[1] or 0
+            
+            # Estimate stock value proportionally
+            if purchase_qty > 0:
+                avg_rate = purchase_amt / purchase_qty
+                stock_amount = stock_qty * avg_rate
+            else:
+                stock_amount = 0
+            
+            return {
+                'distributor_count': distributor_count,
+                'product_count': product_count,
+                'party_count': party_count,
+                'stock_qty': stock_qty,
+                'stock_amount': stock_amount
+            }
         finally:
             session.close()
