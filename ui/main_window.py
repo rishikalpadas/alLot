@@ -1,8 +1,8 @@
 """Main dashboard window for alLot application."""
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                               QPushButton, QLabel, QFrame, QMessageBox, QStackedWidget)
-from PySide6.QtCore import Qt, QTimer, QDateTime
-from PySide6.QtGui import QFont, QAction
+                               QPushButton, QLabel, QFrame, QMessageBox, QStackedWidget, QTableWidget)
+from PySide6.QtCore import Qt, QTimer, QDateTime, QEvent
+from PySide6.QtGui import QFont, QAction, QKeyEvent
 from ui.dashboard_home import DashboardHome
 from ui.control_panel.distributors import DistributorsPanel
 from ui.control_panel.parties import PartiesPanel
@@ -85,6 +85,9 @@ class MainWindow(QMainWindow):
         
         # Set default to dashboard home
         self.stacked_widget.setCurrentWidget(self.dashboard_home)
+        
+        # Install global event filter to handle Escape and outside clicks
+        self.installEventFilter(self)
         
         self.showMaximized()
     
@@ -311,6 +314,54 @@ class MainWindow(QMainWindow):
     def show_reports(self):
         """Show reports window."""
         self.stacked_widget.setCurrentWidget(self.reports_window)
+    
+    def eventFilter(self, obj, event):
+        """Global event filter to handle Escape key and mouse clicks for clearing selections."""
+        # Handle Escape key globally
+        if event.type() == QEvent.Type.KeyPress:
+            key_event = QKeyEvent(event)
+            if key_event.key() == Qt.Key_Escape:
+                # Clear selections in all panels
+                for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
+                    if hasattr(panel, 'table') and panel.table.selectedItems():
+                        # Check if panel is in edit mode (new row with *)
+                        in_edit_mode = False
+                        if hasattr(panel, 'removing_row') and not panel.removing_row:
+                            for row in range(panel.table.rowCount()):
+                                serial_item = panel.table.item(row, 0)
+                                if serial_item and serial_item.text() == "*":
+                                    in_edit_mode = True
+                                    break
+                        # Only clear if not in edit mode (let panel handle edit mode)
+                        if not in_edit_mode:
+                            panel.table.clearSelection()
+        
+        # Handle mouse clicks outside tables
+        if event.type() == QEvent.Type.MouseButtonPress:
+            # Get the widget under the mouse
+            widget = self.childAt(event.pos())
+            # Check all panels for selection
+            for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
+                if hasattr(panel, 'table') and panel.table.selectedItems():
+                    # Check if click is outside this panel's table
+                    if not self._is_click_in_table(widget, panel.table):
+                        panel.table.clearSelection()
+        
+        return super().eventFilter(obj, event)
+    
+    def _is_click_in_table(self, widget, table):
+        """Check if a widget is the table or a child of the table."""
+        if widget is None:
+            return False
+        if widget == table:
+            return True
+        # Check if widget is a child of table
+        parent = widget.parent()
+        while parent is not None:
+            if parent == table:
+                return True
+            parent = parent.parent()
+        return False
     
     def show_about(self):
         """Show about dialog."""

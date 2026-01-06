@@ -142,7 +142,7 @@ class TicketsPanel(QWidget):
         self.table.itemSelectionChanged.connect(self.update_buttons)
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
         
-        # Install event filter to catch Escape key before editor consumes it
+        # Install event filter to catch Escape for new row removal
         self.table.installEventFilter(self)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -188,7 +188,6 @@ class TicketsPanel(QWidget):
             }
             QHeaderView::section:hover {
                 background-color: #F0F0F0;
-                cursor: pointer;
             }
             /* Modern Scrollbar */
             QScrollBar:vertical {
@@ -392,9 +391,10 @@ class TicketsPanel(QWidget):
                 return
     
     def eventFilter(self, obj, event):
-        """Event filter to catch Escape key before editor consumes it."""
+        """Event filter to catch Escape key for new row removal."""
         if obj == self.table and event.type() == event.Type.KeyPress:
-            if event.key() == Qt.Key_Escape:
+            key_event = QKeyEvent(event)
+            if key_event.key() == Qt.Key_Escape:
                 if self.removing_row:  # Prevent re-entrancy
                     return True
                 # Check if there's a new row being edited
@@ -408,17 +408,9 @@ class TicketsPanel(QWidget):
                         self.table.removeRow(row)
                         self.removing_row = False
                         return True
-                # If no new row, clear selection
-                self.table.clearSelection()
-                return True
         return super().eventFilter(obj, event)
     
-    def mousePressEvent(self, event):
-        """Clear selection when clicking outside the table."""
-        if not self.table.geometry().contains(event.pos()):
-            self.table.clearSelection()
-        super().mousePressEvent(event)
-    
+
     def add_product(self):
         """Add new ticket with inline editing."""
         # Add new editable row at the bottom
