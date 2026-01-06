@@ -42,11 +42,36 @@ class PartiesPanel(QWidget):
         layout.addLayout(button_layout)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Contact Person", "Phone", "Email"])
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["ID", "Name", "Sell Rate"])
+        
+        # Hide row numbers
+        self.table.verticalHeader().setVisible(False)
+        
+        # Set column widths
+        self.table.setColumnWidth(0, 60)  # ID column - narrow
+        self.table.setColumnWidth(1, 300)  # Name column - moderate
+        self.table.setColumnWidth(2, 150)  # Sell Rate column - moderate
+        
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #E0E0E0;
+                background-color: white;
+            }
+            QTableWidget::item {
+                padding: 8px;
+            }
+            QHeaderView::section {
+                background-color: #F5F5F5;
+                padding: 8px;
+                border: none;
+                border-bottom: 2px solid #E0E0E0;
+                font-weight: 600;
+            }
+        """)
         layout.addWidget(self.table)
     
     def load_parties(self):
@@ -59,9 +84,7 @@ class PartiesPanel(QWidget):
             for row, party in enumerate(parties):
                 self.table.setItem(row, 0, QTableWidgetItem(str(party.id)))
                 self.table.setItem(row, 1, QTableWidgetItem(party.name))
-                self.table.setItem(row, 2, QTableWidgetItem(party.contact_person or ""))
-                self.table.setItem(row, 3, QTableWidgetItem(party.phone or ""))
-                self.table.setItem(row, 4, QTableWidgetItem(party.email or ""))
+                self.table.setItem(row, 2, QTableWidgetItem(f"₹ {party.sell_rate:.2f}"))
         finally:
             session.close()
     
@@ -131,18 +154,9 @@ class PartyDialog(QDialog):
         self.name_input = QLineEdit()
         layout.addRow("Name*:", self.name_input)
         
-        self.contact_input = QLineEdit()
-        layout.addRow("Contact Person:", self.contact_input)
-        
-        self.phone_input = QLineEdit()
-        layout.addRow("Phone:", self.phone_input)
-        
-        self.email_input = QLineEdit()
-        layout.addRow("Email:", self.email_input)
-        
-        self.address_input = QTextEdit()
-        self.address_input.setMaximumHeight(80)
-        layout.addRow("Address:", self.address_input)
+        self.sell_rate_input = QLineEdit()
+        self.sell_rate_input.setPlaceholderText("0.00")
+        layout.addRow("Sell Rate*:", self.sell_rate_input)
         
         button_layout = QHBoxLayout()
         save_btn = QPushButton("Save")
@@ -161,18 +175,26 @@ class PartyDialog(QDialog):
             party = session.query(Party).get(self.party_id)
             if party:
                 self.name_input.setText(party.name)
-                self.contact_input.setText(party.contact_person or "")
-                self.phone_input.setText(party.phone or "")
-                self.email_input.setText(party.email or "")
-                self.address_input.setPlainText(party.address or "")
+                self.sell_rate_input.setText(str(party.sell_rate))
         finally:
             session.close()
     
     def save(self):
         name = self.name_input.text().strip()
+        sell_rate_text = self.sell_rate_input.text().strip()
         
         if not name:
             QMessageBox.warning(self, "Validation Error", "Name is required.")
+            return
+        
+        try:
+            sell_rate = float(sell_rate_text) if sell_rate_text else 0.0
+        except ValueError:
+            QMessageBox.warning(self, "Validation Error", "Sell Rate must be a valid number.")
+            return
+        
+        if sell_rate < 0:
+            QMessageBox.warning(self, "Validation Error", "Sell Rate cannot be negative.")
             return
         
         session = db_manager.get_session()
@@ -181,17 +203,11 @@ class PartyDialog(QDialog):
                 party = session.query(Party).get(self.party_id)
                 if party:
                     party.name = name
-                    party.contact_person = self.contact_input.text().strip() or None
-                    party.phone = self.phone_input.text().strip() or None
-                    party.email = self.email_input.text().strip() or None
-                    party.address = self.address_input.toPlainText().strip() or None
+                    party.sell_rate = sell_rate
             else:
                 party = Party(
                     name=name,
-                    contact_person=self.contact_input.text().strip() or None,
-                    phone=self.phone_input.text().strip() or None,
-                    email=self.email_input.text().strip() or None,
-                    address=self.address_input.toPlainText().strip() or None
+                    sell_rate=sell_rate
                 )
                 session.add(party)
             

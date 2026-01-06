@@ -24,10 +24,7 @@ class Distributor(Base):
     
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
-    contact_person = Column(String(100))
-    phone = Column(String(20))
-    email = Column(String(100))
-    address = Column(Text)
+    purchase_rate = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime, default=datetime.now)
     
     # Relationships
@@ -41,10 +38,7 @@ class Party(Base):
     
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
-    contact_person = Column(String(100))
-    phone = Column(String(20))
-    email = Column(String(100))
-    address = Column(Text)
+    sell_rate = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime, default=datetime.now)
     
     # Relationships

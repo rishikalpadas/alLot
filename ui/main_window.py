@@ -56,20 +56,15 @@ class MainWindow(QMainWindow):
         self.dashboard_home = DashboardHome()
         self.stacked_widget.addWidget(self.dashboard_home)
         
-        # Control panel home screen
-        self.control_panel_home = self.create_control_panel_home()
-        self.stacked_widget.addWidget(self.control_panel_home)
-        
-        # Add control panel screens
+        # Create control panel screens first (needed for control panel home)
         self.distributors_panel = DistributorsPanel()
         self.parties_panel = PartiesPanel()
         self.products_panel = ProductsPanel()
         self.settings_panel = SettingsPanel()
         
-        self.stacked_widget.addWidget(self.distributors_panel)
-        self.stacked_widget.addWidget(self.parties_panel)
-        self.stacked_widget.addWidget(self.products_panel)
-        self.stacked_widget.addWidget(self.settings_panel)
+        # Control panel home screen (uses panels created above)
+        self.control_panel_home = self.create_control_panel_home()
+        self.stacked_widget.addWidget(self.control_panel_home)
         
         # Add transaction screens
         self.purchase_window = PurchaseWindow()
@@ -258,97 +253,45 @@ class MainWindow(QMainWindow):
         return button
     
     def create_control_panel_home(self):
-        """Create control panel home screen with options."""
-        home_widget = QWidget()
-        layout = QVBoxLayout(home_widget)
+        """Create control panel home screen with all sections in one scrollable page."""
+        from PySide6.QtWidgets import QScrollArea
+        
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; background-color: #F5F5F5; }")
+        
+        # Main container widget
+        container = QWidget()
+        container.setStyleSheet("background-color: #F5F5F5;")
+        layout = QVBoxLayout(container)
         layout.setSpacing(30)
-        layout.setContentsMargins(50, 50, 50, 50)
+        layout.setContentsMargins(40, 35, 40, 35)
         
         # Title
         title_label = QLabel("Control Panel")
         title_font = QFont()
-        title_font.setPointSize(20)
+        title_font.setPointSize(22)
         title_font.setBold(True)
         title_label.setFont(title_font)
+        title_label.setStyleSheet("color: #212121; background: transparent;")
         layout.addWidget(title_label)
         
-        # Buttons grid
-        buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(20)
+        # Two-column layout for Distributors and Parties
+        top_row_layout = QHBoxLayout()
+        top_row_layout.setSpacing(20)
+        top_row_layout.addWidget(self.distributors_panel)
+        top_row_layout.addWidget(self.parties_panel)
+        layout.addLayout(top_row_layout)
         
-        # Row 1
-        row1 = QHBoxLayout()
-        row1.setSpacing(20)
+        # Add remaining sections below
+        layout.addWidget(self.products_panel)
+        layout.addWidget(self.settings_panel)
         
-        btn_distributors = self.create_control_panel_button("Distributors", "Manage distributors and purchase rates")
-        btn_distributors.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.distributors_panel))
-        row1.addWidget(btn_distributors)
-        
-        btn_parties = self.create_control_panel_button("Parties", "Manage parties and sale rates")
-        btn_parties.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.parties_panel))
-        row1.addWidget(btn_parties)
-        
-        buttons_layout.addLayout(row1)
-        
-        # Row 2
-        row2 = QHBoxLayout()
-        row2.setSpacing(20)
-        
-        btn_tickets = self.create_control_panel_button("Tickets", "Manage product catalog")
-        btn_tickets.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.products_panel))
-        row2.addWidget(btn_tickets)
-        
-        btn_password = self.create_control_panel_button("Change Password", "Update your password")
-        btn_password.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_panel))
-        row2.addWidget(btn_password)
-        
-        buttons_layout.addLayout(row2)
-        
-        layout.addLayout(buttons_layout)
         layout.addStretch()
         
-        return home_widget
-    
-    def create_control_panel_button(self, title, description, color="#2196F3"):
-        """Create a control panel option button."""
-        button = QPushButton()
-        button_layout = QVBoxLayout(button)
-        button_layout.setSpacing(10)
-        
-        title_label = QLabel(title)
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignCenter)
-        button_layout.addWidget(title_label)
-        
-        desc_label = QLabel(description)
-        desc_label.setWordWrap(True)
-        desc_label.setAlignment(Qt.AlignCenter)
-        button_layout.addWidget(desc_label)
-        
-        button.setFixedHeight(120)
-        button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 20px;
-            }}
-            QPushButton:hover {{
-                opacity: 0.9;
-                background-color: {color};
-                filter: brightness(110%);
-            }}
-            QPushButton:pressed {{
-                background-color: {color};
-                filter: brightness(90%);
-            }}
-        """)
-        
-        return button
+        scroll_area.setWidget(container)
+        return scroll_area
     
     def show_purchase(self):
         """Show purchase window and refresh data."""
