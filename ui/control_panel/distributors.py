@@ -1,7 +1,7 @@
 """Distributors management panel."""
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
-                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView, QCheckBox)
+                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QKeyEvent
 import qtawesome as qta
@@ -106,30 +106,33 @@ class DistributorsPanel(QWidget):
         
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["☑", "#", "ID", "Name", "Purchase Rate"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["#", "ID", "Name", "Purchase Rate"])
         
         # Hide row numbers
         self.table.verticalHeader().setVisible(False)
         
-        # Set column widths - total ~550px to avoid horizontal scrollbar
-        self.table.setColumnWidth(0, 40)   # Checkbox column
-        self.table.setColumnWidth(1, 50)   # # column
-        self.table.setColumnWidth(2, 80)   # ID column
-        self.table.setColumnWidth(3, 250)  # Name column - expanded
-        self.table.setColumnWidth(4, 110)  # Purchase Rate column - shrunk
+        # Set column widths
+        self.table.setColumnWidth(0, 50)   # # column
+        self.table.setColumnWidth(1, 80)   # ID column
+        self.table.setColumnWidth(2, 290)  # Name column
+        self.table.setColumnWidth(3, 110)  # Purchase Rate column
         
         # Disable horizontal scrollbar and column resizing
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Last column stretches
-        header.sectionClicked.connect(self.header_clicked)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Last column stretches
         
         # Connect itemChanged for inline editing workflow
         self.table.itemChanged.connect(self.on_item_changed)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        
+        # Install event filter to catch Escape key before editor consumes it
+        self.table.installEventFilter(self)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # Enable Ctrl+click multi-select
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
@@ -229,60 +232,37 @@ class DistributorsPanel(QWidget):
             self.table.setRowCount(len(distributors))
             
             for row, dist in enumerate(distributors):
-                # Checkbox - centered in cell with modern styling
-                checkbox = QCheckBox()
-                checkbox.setProperty("distributor_id", dist.id)
-                checkbox.setStyleSheet(self.checkbox_style)
-                
-                # Set white checkmark icon for checked state
-                pixmap = qta.icon('fa5s.check', color='white').pixmap(16, 16)
-                checkbox.setProperty('checkedIcon', pixmap)
-                
-                # Update icon when toggled
-                def update_icon(checked, cb=checkbox):
-                    if checked:
-                        icon = qta.icon('fa5s.check', color='white')
-                        cb.setIcon(icon)
-                    else:
-                        cb.setIcon(QIcon())
-                
-                checkbox.toggled.connect(update_icon)
-                checkbox.setIconSize(checkbox.iconSize() * 0.6)
-                
-                # Center the checkbox
-                checkbox_widget = QWidget()
-                checkbox_layout = QHBoxLayout(checkbox_widget)
-                checkbox_layout.addWidget(checkbox)
-                checkbox_layout.setAlignment(Qt.AlignCenter)
-                checkbox_layout.setContentsMargins(0, 0, 0, 0)
-                self.table.setCellWidget(row, 0, checkbox_widget)
-                
                 # Serial number - center aligned
                 serial_item = QTableWidgetItem(str(row + 1))
                 serial_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 1, serial_item)
+                serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 0, serial_item)
                 
                 # Display ID - center aligned
                 id_item = QTableWidgetItem(dist.display_id or f"D{dist.id:03d}")
                 id_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 2, id_item)
+                id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 1, id_item)
                 
                 # Name - center aligned
                 name_item = QTableWidgetItem(dist.name)
                 name_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 3, name_item)
+                name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 2, name_item)
                 
                 # Purchase Rate - center aligned
                 rate_item = QTableWidgetItem(f"₹ {dist.purchase_rate:.2f}")
                 rate_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 4, rate_item)
+                rate_item.setFlags(rate_item.flags() & ~Qt.ItemIsEditable)
+                rate_item.setData(Qt.UserRole, dist.id)
+                self.table.setItem(row, 3, rate_item)
         finally:
             session.close()
     
     def save_new_row(self, row):
         """Save the new distributor row to database."""
-        name_item = self.table.item(row, 3)
-        rate_item = self.table.item(row, 4)
+        name_item = self.table.item(row, 2)
+        rate_item = self.table.item(row, 3)
         
         if not name_item or not rate_item:
             return False
@@ -349,17 +329,52 @@ class DistributorsPanel(QWidget):
         col = item.column()
         
         # Check if this is a new row (serial = "*")
-        serial_item = self.table.item(row, 1)
+        serial_item = self.table.item(row, 0)
         if not serial_item or serial_item.text() != "*":
             return
         
         # If name field was edited, move to rate field
-        if col == 3 and item.text().strip():
-            self.table.setCurrentCell(row, 4)
-            self.table.editItem(self.table.item(row, 4))
+        if col == 2 and item.text().strip():
+            self.table.setCurrentCell(row, 3)
+            self.table.editItem(self.table.item(row, 3))
         # If rate field was edited, save the row
-        elif col == 4 and item.text().strip():
+        elif col == 3 and item.text().strip():
             self.save_new_row(row)
+    
+    def cancel_new_row(self):
+        """Cancel and remove the new row being edited."""
+        for row in range(self.table.rowCount()):
+            serial_item = self.table.item(row, 0)
+            if serial_item and serial_item.text() == "*":
+                self.table.removeRow(row)
+                return True
+        return False
+    
+    def on_selection_changed(self):
+        """Cancel new row when clicking elsewhere."""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            return
+        
+        # Check if there's a new row being edited
+        for row in range(self.table.rowCount()):
+            serial_item = self.table.item(row, 0)
+            if serial_item and serial_item.text() == "*":
+                # If clicking on a different row, cancel the new row
+                if row != current_row:
+                    # Temporarily disconnect to avoid recursion
+                    self.table.itemSelectionChanged.disconnect(self.on_selection_changed)
+                    self.table.removeRow(row)
+                    self.table.itemSelectionChanged.connect(self.on_selection_changed)
+                return
+    
+    def eventFilter(self, obj, event):
+        """Event filter to catch Escape key before editor consumes it."""
+        if obj == self.table and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                if self.cancel_new_row():
+                    return True  # Event handled
+        return super().eventFilter(obj, event)
     
     def toggle_all_checkboxes(self):
         """Toggle all row checkboxes."""
@@ -383,47 +398,39 @@ class DistributorsPanel(QWidget):
     
     def add_distributor(self):
         """Add new distributor with inline editing."""
-        # Add new editable row at the top
-        self.table.insertRow(0)
-        
-        # Checkbox (disabled for new row)
-        checkbox = QCheckBox()
-        checkbox.setEnabled(False)
-        checkbox_widget = QWidget()
-        checkbox_layout = QHBoxLayout(checkbox_widget)
-        checkbox_layout.addWidget(checkbox)
-        checkbox_layout.setAlignment(Qt.AlignCenter)
-        checkbox_layout.setContentsMargins(0, 0, 0, 0)
-        self.table.setCellWidget(0, 0, checkbox_widget)
+        # Add new editable row at the bottom
+        row = self.table.rowCount()
+        self.table.insertRow(row)
         
         # Serial number
         serial_item = QTableWidgetItem("*")
         serial_item.setTextAlignment(Qt.AlignCenter)
         serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
         serial_item.setBackground(Qt.lightGray)
-        self.table.setItem(0, 1, serial_item)
+        self.table.setItem(row, 0, serial_item)
         
         # ID (will be auto-generated)
         id_item = QTableWidgetItem("NEW")
         id_item.setTextAlignment(Qt.AlignCenter)
         id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
         id_item.setBackground(Qt.lightGray)
-        self.table.setItem(0, 2, id_item)
+        self.table.setItem(row, 1, id_item)
         
         # Name - editable
         name_item = QTableWidgetItem("")
         name_item.setTextAlignment(Qt.AlignCenter)
         name_item.setBackground(Qt.yellow)
-        self.table.setItem(0, 3, name_item)
+        self.table.setItem(row, 2, name_item)
         
         # Purchase Rate - editable
         rate_item = QTableWidgetItem("")
         rate_item.setTextAlignment(Qt.AlignCenter)
         rate_item.setBackground(Qt.yellow)
-        self.table.setItem(0, 4, rate_item)
+        self.table.setItem(row, 3, rate_item)
         
-        # Set focus on name field
-        self.table.setCurrentCell(0, 3)
+        # Scroll to bottom and set focus on name field
+        self.table.scrollToBottom()
+        self.table.setCurrentCell(row, 2)
         self.table.editItem(name_item)
     
     def edit_distributor(self):

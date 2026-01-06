@@ -1,7 +1,7 @@
 """Parties management panel."""
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
-                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView, QCheckBox)
+                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QKeyEvent
 import qtawesome as qta
@@ -103,30 +103,33 @@ class PartiesPanel(QWidget):
         layout.addLayout(button_layout)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["☑", "#", "ID", "Name", "Sell Rate"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["#", "ID", "Name", "Sell Rate"])
         
         # Hide row numbers
         self.table.verticalHeader().setVisible(False)
         
-        # Set column widths - total ~550px to avoid horizontal scrollbar
-        self.table.setColumnWidth(0, 40)   # Checkbox column
-        self.table.setColumnWidth(1, 50)   # # column
-        self.table.setColumnWidth(2, 80)   # ID column
-        self.table.setColumnWidth(3, 250)  # Name column - expanded
-        self.table.setColumnWidth(4, 110)  # Sell Rate column - shrunk
+        # Set column widths
+        self.table.setColumnWidth(0, 50)   # # column
+        self.table.setColumnWidth(1, 80)   # ID column
+        self.table.setColumnWidth(2, 290)  # Name column
+        self.table.setColumnWidth(3, 110)  # Sell Rate column
         
         # Disable horizontal scrollbar and column resizing
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Last column stretches
-        header.sectionClicked.connect(self.header_clicked)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Last column stretches
         
         # Connect itemChanged for inline editing workflow
         self.table.itemChanged.connect(self.on_item_changed)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        
+        # Install event filter to catch Escape key before editor consumes it
+        self.table.installEventFilter(self)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # Enable Ctrl+click multi-select
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
@@ -195,28 +198,7 @@ class PartiesPanel(QWidget):
             }
         """)
         
-        # Apply modern checkbox styling separately
-        self.checkbox_style = """
-            QCheckBox::indicator {
-                width: 20px;
-                height: 20px;
-                border-radius: 4px;
-                border: 2px solid #BDBDBD;
-                background-color: white;
-            }
-            QCheckBox::indicator:hover {
-                border: 2px solid #2196F3;
-                background-color: #E3F2FD;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #2196F3;
-                border: 2px solid #2196F3;
-            }
-        """
         layout.addWidget(self.table)
-        
-        # Track select all state
-        self.all_selected = False
     
     def load_parties(self):
         """Load parties from database."""
@@ -226,60 +208,37 @@ class PartiesPanel(QWidget):
             self.table.setRowCount(len(parties))
             
             for row, party in enumerate(parties):
-                # Checkbox - centered in cell with modern styling
-                checkbox = QCheckBox()
-                checkbox.setProperty("party_id", party.id)
-                checkbox.setStyleSheet(self.checkbox_style)
-                
-                # Set white checkmark icon for checked state
-                pixmap = qta.icon('fa5s.check', color='white').pixmap(16, 16)
-                checkbox.setProperty('checkedIcon', pixmap)
-                
-                # Update icon when toggled
-                def update_icon(checked, cb=checkbox):
-                    if checked:
-                        icon = qta.icon('fa5s.check', color='white')
-                        cb.setIcon(icon)
-                    else:
-                        cb.setIcon(QIcon())
-                
-                checkbox.toggled.connect(update_icon)
-                checkbox.setIconSize(checkbox.iconSize() * 0.6)
-                
-                # Center the checkbox
-                checkbox_widget = QWidget()
-                checkbox_layout = QHBoxLayout(checkbox_widget)
-                checkbox_layout.addWidget(checkbox)
-                checkbox_layout.setAlignment(Qt.AlignCenter)
-                checkbox_layout.setContentsMargins(0, 0, 0, 0)
-                self.table.setCellWidget(row, 0, checkbox_widget)
-                
                 # Serial number - center aligned
                 serial_item = QTableWidgetItem(str(row + 1))
                 serial_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 1, serial_item)
+                serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 0, serial_item)
                 
                 # Display ID - center aligned
                 id_item = QTableWidgetItem(party.display_id or f"P{party.id:03d}")
                 id_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 2, id_item)
+                id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 1, id_item)
                 
                 # Name - center aligned
                 name_item = QTableWidgetItem(party.name)
                 name_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 3, name_item)
+                name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row, 2, name_item)
                 
                 # Sell Rate - center aligned
                 rate_item = QTableWidgetItem(f"₹ {party.sell_rate:.2f}")
                 rate_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 4, rate_item)
+                rate_item.setFlags(rate_item.flags() & ~Qt.ItemIsEditable)
+                rate_item.setData(Qt.UserRole, party.id)
+                self.table.setItem(row, 3, rate_item)
         finally:
             session.close()
     
     def save_new_row(self, row):
         """Save the new party row to database."""
-        name_item = self.table.item(row, 3)
-        rate_item = self.table.item(row, 4)
+        name_item = self.table.item(row, 2)
+        rate_item = self.table.item(row, 3)
         
         if not name_item or not rate_item:
             return False
@@ -346,81 +305,88 @@ class PartiesPanel(QWidget):
         col = item.column()
         
         # Check if this is a new row (serial = "*")
-        serial_item = self.table.item(row, 1)
+        serial_item = self.table.item(row, 0)
         if not serial_item or serial_item.text() != "*":
             return
         
         # If name field was edited, move to rate field
-        if col == 3 and item.text().strip():
-            self.table.setCurrentCell(row, 4)
-            self.table.editItem(self.table.item(row, 4))
+        if col == 2 and item.text().strip():
+            self.table.setCurrentCell(row, 3)
+            self.table.editItem(self.table.item(row, 3))
         # If rate field was edited, save the row
-        elif col == 4 and item.text().strip():
+        elif col == 3 and item.text().strip():
             self.save_new_row(row)
     
-    def toggle_all_checkboxes(self):
-        """Toggle all row checkboxes."""
-        self.all_selected = not self.all_selected
-        # Update header label with better checkbox symbols
-        header_item = self.table.horizontalHeaderItem(0)
-        if header_item:
-            header_item.setText("☑" if self.all_selected else "☐")
-        
+    def cancel_new_row(self):
+        """Cancel and remove the new row being edited."""
         for row in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox:
-                    checkbox.setChecked(self.all_selected)
+            serial_item = self.table.item(row, 0)
+            if serial_item and serial_item.text() == "*":
+                self.table.removeRow(row)
+                return True
+        return False
     
-    def header_clicked(self, index):
-        """Handle header click to toggle select all."""
-        if index == 0:
-            self.toggle_all_checkboxes()
+    def on_selection_changed(self):
+        """Cancel new row when clicking elsewhere."""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            return
+        
+        # Check if there's a new row being edited
+        for row in range(self.table.rowCount()):
+            serial_item = self.table.item(row, 0)
+            if serial_item and serial_item.text() == "*":
+                # If clicking on a different row, cancel the new row
+                if row != current_row:
+                    # Temporarily disconnect to avoid recursion
+                    self.table.itemSelectionChanged.disconnect(self.on_selection_changed)
+                    self.table.removeRow(row)
+                    self.table.itemSelectionChanged.connect(self.on_selection_changed)
+                return
+    
+    def eventFilter(self, obj, event):
+        """Event filter to catch Escape key before editor consumes it."""
+        if obj == self.table and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                if self.cancel_new_row():
+                    return True  # Event handled
+        return super().eventFilter(obj, event)
     
     def add_party(self):
         """Add new party with inline editing."""
-        # Add new editable row at the top
-        self.table.insertRow(0)
-        
-        # Checkbox (disabled for new row)
-        checkbox = QCheckBox()
-        checkbox.setEnabled(False)
-        checkbox_widget = QWidget()
-        checkbox_layout = QHBoxLayout(checkbox_widget)
-        checkbox_layout.addWidget(checkbox)
-        checkbox_layout.setAlignment(Qt.AlignCenter)
-        checkbox_layout.setContentsMargins(0, 0, 0, 0)
-        self.table.setCellWidget(0, 0, checkbox_widget)
+        # Add new editable row at the bottom
+        row = self.table.rowCount()
+        self.table.insertRow(row)
         
         # Serial number
         serial_item = QTableWidgetItem("*")
         serial_item.setTextAlignment(Qt.AlignCenter)
         serial_item.setFlags(serial_item.flags() & ~Qt.ItemIsEditable)
         serial_item.setBackground(Qt.lightGray)
-        self.table.setItem(0, 1, serial_item)
+        self.table.setItem(row, 0, serial_item)
         
         # ID (will be auto-generated)
         id_item = QTableWidgetItem("NEW")
         id_item.setTextAlignment(Qt.AlignCenter)
         id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
         id_item.setBackground(Qt.lightGray)
-        self.table.setItem(0, 2, id_item)
+        self.table.setItem(row, 1, id_item)
         
         # Name - editable
         name_item = QTableWidgetItem("")
         name_item.setTextAlignment(Qt.AlignCenter)
         name_item.setBackground(Qt.yellow)
-        self.table.setItem(0, 3, name_item)
+        self.table.setItem(row, 2, name_item)
         
         # Sell Rate - editable
         rate_item = QTableWidgetItem("")
         rate_item.setTextAlignment(Qt.AlignCenter)
         rate_item.setBackground(Qt.yellow)
-        self.table.setItem(0, 4, rate_item)
+        self.table.setItem(row, 3, rate_item)
         
-        # Set focus on name field
-        self.table.setCurrentCell(0, 3)
+        # Scroll to bottom and set focus on name field
+        self.table.scrollToBottom()
+        self.table.setCurrentCell(row, 2)
         self.table.editItem(name_item)
     
     def edit_party(self):
@@ -429,25 +395,29 @@ class PartiesPanel(QWidget):
             QMessageBox.warning(self, "No Selection", "Please select a party to edit.")
             return
         
-        # Get party_id from checkbox widget
+        # Get party_id from rate item's UserRole data
         row = selected_rows[0].row()
-        checkbox_widget = self.table.cellWidget(row, 0)
-        checkbox = checkbox_widget.findChild(QCheckBox)
-        party_id = checkbox.property("party_id")
+        rate_item = self.table.item(row, 3)
+        party_id = rate_item.data(Qt.UserRole)
         dialog = PartyDialog(self, party_id)
         if dialog.exec():
             self.load_parties()
     
     def delete_party(self):
         """Delete selected party/parties."""
-        # Collect checked parties
+        # Collect selected parties
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select at least one party to delete.")
+            return
+        
         selected_ids = []
-        for row in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox and checkbox.isChecked():
-                    selected_ids.append(checkbox.property("party_id"))
+        for index in selected_rows:
+            row = index.row()
+            rate_item = self.table.item(row, 3)
+            party_id = rate_item.data(Qt.UserRole)
+            if party_id:
+                selected_ids.append(party_id)
         
         if not selected_ids:
             QMessageBox.warning(self, "No Selection", "Please select at least one party to delete.")
