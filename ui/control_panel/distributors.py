@@ -135,9 +135,6 @@ class DistributorsPanel(QWidget):
         self.table.itemSelectionChanged.connect(self.update_buttons)
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
         
-        # Install event filter to catch Escape for new row removal
-        self.table.installEventFilter(self)
-        
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # Enable Ctrl+click multi-select
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -399,26 +396,6 @@ class DistributorsPanel(QWidget):
                     self.table.removeRow(row)
                     self.removing_row = False
                 return
-    
-    def eventFilter(self, obj, event):
-        """Event filter to catch Escape key for new row removal."""
-        if obj == self.table and event.type() == event.Type.KeyPress:
-            key_event = QKeyEvent(event)
-            if key_event.key() == Qt.Key_Escape:
-                if self.removing_row:  # Prevent re-entrancy
-                    return True
-                # Check if there's a new row being edited
-                for row in range(self.table.rowCount()):
-                    serial_item = self.table.item(row, 0)
-                    if serial_item and serial_item.text() == "*":
-                        # Close any open editor first
-                        self.removing_row = True
-                        self.table.closePersistentEditor(self.table.currentItem())
-                        # Then remove the row
-                        self.table.removeRow(row)
-                        self.removing_row = False
-                        return True
-        return super().eventFilter(obj, event)
     
     def toggle_all_checkboxes(self):
         """Toggle all row checkboxes."""

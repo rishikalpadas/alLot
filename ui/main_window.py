@@ -1,6 +1,6 @@
 """Main dashboard window for alLot application."""
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                               QPushButton, QLabel, QFrame, QMessageBox, QStackedWidget, QTableWidget)
+                               QPushButton, QLabel, QFrame, QMessageBox, QStackedWidget, QTableWidget, QApplication)
 from PySide6.QtCore import Qt, QTimer, QDateTime, QEvent
 from PySide6.QtGui import QFont, QAction, QKeyEvent
 from ui.dashboard_home import DashboardHome
@@ -86,8 +86,9 @@ class MainWindow(QMainWindow):
         # Set default to dashboard home
         self.stacked_widget.setCurrentWidget(self.dashboard_home)
         
-        # Install global event filter to handle Escape and outside clicks
-        self.installEventFilter(self)
+        # Install global application-level event filter for Escape key
+        # This catches all key events even if no widget has focus
+        QApplication.instance().installEventFilter(self)
         
         self.showMaximized()
     
@@ -317,35 +318,59 @@ class MainWindow(QMainWindow):
     
     def eventFilter(self, obj, event):
         """Global event filter to handle Escape key and mouse clicks for clearing selections."""
-        # Handle Escape key globally
+        # Handle Escape key globally - prioritize removing new rows
         if event.type() == QEvent.Type.KeyPress:
             key_event = QKeyEvent(event)
             if key_event.key() == Qt.Key_Escape:
-                # Clear selections in all panels
+                # First, try to remove any new rows being edited
+                for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
+                    if hasattr(panel, 'table') and hasattr(panel, 'removing_row'):
+                        # Check if there's a new row being edited
+                        for row in range(panel.table.rowCount()):
+                            serial_item = panel.table.item(row, 0)
+                            if serial_item and serial_item.text() == "*":
+                                # Remove the new row
+                                if not panel.removing_row:
+                                    panel.removing_row = True
+                                    panel.table.closePersistentEditor(panel.table.currentItem())
+                                    panel.table.removeRow(row)
+                                    panel.removing_row = False
+                                    return True
+                
+                # If no new row found, clear all selections
                 for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
                     if hasattr(panel, 'table') and panel.table.selectedItems():
-                        # Check if panel is in edit mode (new row with *)
-                        in_edit_mode = False
-                        if hasattr(panel, 'removing_row') and not panel.removing_row:
-                            for row in range(panel.table.rowCount()):
-                                serial_item = panel.table.item(row, 0)
-                                if serial_item and serial_item.text() == "*":
-                                    in_edit_mode = True
-                                    break
-                        # Only clear if not in edit mode (let panel handle edit mode)
-                        if not in_edit_mode:
-                            panel.table.clearSelection()
+                        panel.table.clearSelection()
+                return True
         
         # Handle mouse clicks outside tables
         if event.type() == QEvent.Type.MouseButtonPress:
             # Get the widget under the mouse
             widget = self.childAt(event.pos())
-            # Check all panels for selection
+            # Check all panels for new rows and selections
             for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
-                if hasattr(panel, 'table') and panel.table.selectedItems():
-                    # Check if click is outside this panel's table
-                    if not self._is_click_in_table(widget, panel.table):
-                        panel.table.clearSelection()
+                if hasattr(panel, 'table') and hasattr(panel, 'removing_row'):
+                    # Check if there's a new row being edited
+                    has_new_row = False
+                    new_row_index = -1
+                    for row in range(panel.table.rowCount()):
+                        serial_item = panel.table.item(row, 0)
+                        if serial_item and serial_item.text() == "*":
+                            has_new_row = True
+                            new_row_index = row
+                            break
+                    
+                    # If there's a new row and click is outside the table, remove it
+                    if has_new_row and not self._is_click_in_table(widget, panel.table):
+                        if not panel.removing_row:
+                            panel.removing_row = True
+                            panel.table.closePersistentEditor(panel.table.currentItem())
+                            panel.table.removeRow(new_row_index)
+                            panel.removing_row = False
+                    # If no new row, clear selection if clicking outside table
+                    elif panel.table.selectedItems() and not self._is_click_in_table(widget, panel.table):
+                        if not self._is_click_in_table(widget, panel):
+                            panel.table.clearSelection()
         
         return super().eventFilter(obj, event)
     
