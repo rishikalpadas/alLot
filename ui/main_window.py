@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QFrame, QMessageBox, QStackedWidget)
 from PySide6.QtCore import Qt, QTimer, QDateTime
 from PySide6.QtGui import QFont, QAction
+from ui.dashboard_home import DashboardHome
 from ui.control_panel.distributors import DistributorsPanel
 from ui.control_panel.parties import PartiesPanel
 from ui.control_panel.products import ProductsPanel
@@ -39,12 +40,25 @@ class MainWindow(QMainWindow):
         header = self.create_header()
         main_layout.addWidget(header)
         
-        # Content area with stacked widget
+        # Content area with sidebar and stacked widget
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Left sidebar
+        sidebar = self.create_sidebar()
+        content_layout.addWidget(sidebar)
+        
+        # Stacked widget for content
         self.stacked_widget = QStackedWidget()
         
-        # Dashboard home
-        dashboard_home = self.create_dashboard_home()
-        self.stacked_widget.addWidget(dashboard_home)
+        # Dashboard home screen
+        self.dashboard_home = DashboardHome()
+        self.stacked_widget.addWidget(self.dashboard_home)
+        
+        # Control panel home screen
+        self.control_panel_home = self.create_control_panel_home()
+        self.stacked_widget.addWidget(self.control_panel_home)
         
         # Add control panel screens
         self.distributors_panel = DistributorsPanel()
@@ -68,7 +82,14 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.stock_window)
         self.stacked_widget.addWidget(self.reports_window)
         
-        main_layout.addWidget(self.stacked_widget)
+        content_layout.addWidget(self.stacked_widget)
+        
+        content_widget = QWidget()
+        content_widget.setLayout(content_layout)
+        main_layout.addWidget(content_widget)
+        
+        # Set default to dashboard home
+        self.stacked_widget.setCurrentWidget(self.dashboard_home)
         
         self.showMaximized()
     
@@ -176,85 +197,120 @@ class MainWindow(QMainWindow):
         date_text = current_datetime.toString("ddd, MM/dd/yyyy")
         self.info_label.setText(f"{self.user.username}<br>{time_text}<br>{date_text}")
     
-    def create_dashboard_home(self):
-        """Create dashboard home screen."""
+    def create_sidebar(self):
+        """Create left sidebar with navigation."""
+        sidebar = QFrame()
+        sidebar.setStyleSheet("background-color: #263238; color: white;")
+        sidebar.setFixedWidth(220)
+        
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setSpacing(5)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        
+        # Dashboard
+        btn_dashboard = self.create_sidebar_button("Dashboard")
+        btn_dashboard.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.dashboard_home))
+        sidebar_layout.addWidget(btn_dashboard)
+        
+        # Purchase
+        btn_purchase = self.create_sidebar_button("Purchase")
+        btn_purchase.clicked.connect(self.show_purchase)
+        sidebar_layout.addWidget(btn_purchase)
+        
+        # Sale
+        btn_sale = self.create_sidebar_button("Sale")
+        btn_sale.clicked.connect(self.show_sale)
+        sidebar_layout.addWidget(btn_sale)
+        
+        # View Stock
+        btn_stock = self.create_sidebar_button("View Stock")
+        btn_stock.clicked.connect(self.show_stock)
+        sidebar_layout.addWidget(btn_stock)
+        
+        # Control Panel
+        btn_control_panel = self.create_sidebar_button("Control Panel")
+        btn_control_panel.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.control_panel_home))
+        sidebar_layout.addWidget(btn_control_panel)
+        
+        sidebar_layout.addStretch()
+        
+        return sidebar
+    
+    def create_sidebar_button(self, text):
+        """Create a sidebar navigation button."""
+        button = QPushButton(text)
+        button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: none;
+                padding: 12px 15px;
+                text-align: left;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #37474F;
+            }
+            QPushButton:pressed {
+                background-color: #1976D2;
+            }
+        """)
+        return button
+    
+    def create_control_panel_home(self):
+        """Create control panel home screen with options."""
         home_widget = QWidget()
         layout = QVBoxLayout(home_widget)
         layout.setSpacing(30)
         layout.setContentsMargins(50, 50, 50, 50)
         
-        # Welcome message
-        welcome_label = QLabel("Welcome to alLot")
-        welcome_font = QFont()
-        welcome_font.setPointSize(20)
-        welcome_font.setBold(True)
-        welcome_label.setFont(welcome_font)
-        layout.addWidget(welcome_label)
+        # Title
+        title_label = QLabel("Control Panel")
+        title_font = QFont()
+        title_font.setPointSize(20)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        layout.addWidget(title_label)
         
-        # Quick access buttons grid
+        # Buttons grid
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(20)
         
-        # Row 1: Control Panel
+        # Row 1
         row1 = QHBoxLayout()
         row1.setSpacing(20)
         
-        btn_distributors = self.create_dashboard_button("Distributors", "Manage distributors and purchase rates")
+        btn_distributors = self.create_control_panel_button("Distributors", "Manage distributors and purchase rates")
         btn_distributors.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.distributors_panel))
         row1.addWidget(btn_distributors)
         
-        btn_parties = self.create_dashboard_button("Parties", "Manage parties and sale rates")
+        btn_parties = self.create_control_panel_button("Parties", "Manage parties and sale rates")
         btn_parties.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.parties_panel))
         row1.addWidget(btn_parties)
         
-        btn_products = self.create_dashboard_button("Products", "Manage product catalog")
-        btn_products.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.products_panel))
-        row1.addWidget(btn_products)
-        
         buttons_layout.addLayout(row1)
         
-        # Row 2: Transactions
+        # Row 2
         row2 = QHBoxLayout()
         row2.setSpacing(20)
         
-        btn_purchase = self.create_dashboard_button("Purchase", "Record purchase transactions", "#4CAF50")
-        btn_purchase.clicked.connect(self.show_purchase)
-        row2.addWidget(btn_purchase)
+        btn_tickets = self.create_control_panel_button("Tickets", "Manage product catalog")
+        btn_tickets.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.products_panel))
+        row2.addWidget(btn_tickets)
         
-        btn_sale = self.create_dashboard_button("Sale", "Record sale transactions", "#FF9800")
-        btn_sale.clicked.connect(self.show_sale)
-        row2.addWidget(btn_sale)
-        
-        btn_stock = self.create_dashboard_button("Stock", "View current stock levels")
-        btn_stock.clicked.connect(self.show_stock)
-        row2.addWidget(btn_stock)
+        btn_password = self.create_control_panel_button("Change Password", "Update your password")
+        btn_password.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_panel))
+        row2.addWidget(btn_password)
         
         buttons_layout.addLayout(row2)
-        
-        # Row 3: Reports
-        row3 = QHBoxLayout()
-        row3.setSpacing(20)
-        
-        btn_reports = self.create_dashboard_button("Reports", "Generate and view reports", "#9C27B0")
-        btn_reports.clicked.connect(self.show_reports)
-        row3.addWidget(btn_reports)
-        
-        btn_settings = self.create_dashboard_button("Settings", "Application settings")
-        btn_settings.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_panel))
-        row3.addWidget(btn_settings)
-        
-        # Empty placeholder
-        row3.addWidget(QWidget())
-        
-        buttons_layout.addLayout(row3)
         
         layout.addLayout(buttons_layout)
         layout.addStretch()
         
         return home_widget
     
-    def create_dashboard_button(self, title, description, color="#2196F3"):
-        """Create a styled dashboard button."""
+    def create_control_panel_button(self, title, description, color="#2196F3"):
+        """Create a control panel option button."""
         button = QPushButton()
         button_layout = QVBoxLayout(button)
         button_layout.setSpacing(10)
