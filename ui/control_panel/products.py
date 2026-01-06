@@ -43,9 +43,31 @@ class ProductsPanel(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["ID", "SKU", "Name", "Unit", "Tax Rate %"])
+        
+        # Hide row numbers
+        self.table.verticalHeader().setVisible(False)
+        
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
+        self.table.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #E0E0E0;
+                background-color: white;
+            }
+            QTableWidget::item {
+                padding: 8px;
+            }
+            QHeaderView::section {
+                background-color: #F5F5F5;
+                padding: 8px;
+                border: none;
+                border-bottom: 2px solid #E0E0E0;
+                font-weight: 600;
+            }
+        """)
         layout.addWidget(self.table)
     
     def load_products(self):

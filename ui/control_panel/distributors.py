@@ -1,7 +1,7 @@
 """Distributors management panel."""
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
-                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView)
+                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView, QCheckBox)
 from PySide6.QtCore import Qt
 from database.models import Distributor
 from database.db_manager import db_manager
@@ -46,20 +46,30 @@ class DistributorsPanel(QWidget):
         
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Purchase Rate"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["☐", "#", "ID", "Name", "Purchase Rate"])
         
         # Hide row numbers
         self.table.verticalHeader().setVisible(False)
         
-        # Set column widths
-        self.table.setColumnWidth(0, 60)  # ID column - narrow
-        self.table.setColumnWidth(1, 300)  # Name column - moderate
-        self.table.setColumnWidth(2, 150)  # Purchase Rate column - moderate
+        # Set column widths - total ~550px to avoid horizontal scrollbar
+        self.table.setColumnWidth(0, 40)   # Checkbox column
+        self.table.setColumnWidth(1, 50)   # # column
+        self.table.setColumnWidth(2, 80)   # ID column
+        self.table.setColumnWidth(3, 230)  # Name column - shrunk
+        self.table.setColumnWidth(4, 130)  # Purchase Rate column
+        
+        # Disable horizontal scrollbar and column resizing
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Last column stretches
+        header.sectionClicked.connect(self.header_clicked)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setFixedHeight(240)  # Fixed height for ~5 rows + header
         self.table.setStyleSheet("""
             QTableWidget {
                 gridline-color: #E0E0E0;
@@ -77,20 +87,57 @@ class DistributorsPanel(QWidget):
             }
         """)
         layout.addWidget(self.table)
+        
+        # Track select all state
+        self.all_selected = False
     
     def load_distributors(self):
         """Load distributors from database."""
         session = db_manager.get_session()
         try:
-            distributors = session.query(Distributor).all()
+            distributors = session.query(Distributor).order_by(Distributor.id).all()
             self.table.setRowCount(len(distributors))
             
             for row, dist in enumerate(distributors):
-                self.table.setItem(row, 0, QTableWidgetItem(str(dist.id)))
-                self.table.setItem(row, 1, QTableWidgetItem(dist.name))
-                self.table.setItem(row, 2, QTableWidgetItem(f"₹ {dist.purchase_rate:.2f}"))
+                # Checkbox - centered in cell
+                checkbox = QCheckBox()
+                checkbox.setProperty("distributor_id", dist.id)
+                checkbox_widget = QWidget()
+                checkbox_layout = QHBoxLayout(checkbox_widget)
+                checkbox_layout.addWidget(checkbox)
+                checkbox_layout.setAlignment(Qt.AlignCenter)
+                checkbox_layout.setContentsMargins(0, 0, 0, 0)
+                self.table.setCellWidget(row, 0, checkbox_widget)
+                # Serial number
+                self.table.setItem(row, 1, QTableWidgetItem(str(row + 1)))
+                # Display ID (from database)
+                self.table.setItem(row, 2, QTableWidgetItem(dist.display_id or f"D{dist.id:03d}"))
+                # Name
+                self.table.setItem(row, 3, QTableWidgetItem(dist.name))
+                # Purchase Rate
+                self.table.setItem(row, 4, QTableWidgetItem(f"₹ {dist.purchase_rate:.2f}"))
         finally:
             session.close()
+    
+    def toggle_all_checkboxes(self):
+        """Toggle all row checkboxes."""
+        self.all_selected = not self.all_selected
+        # Update header label
+        header_item = self.table.horizontalHeaderItem(0)
+        if header_item:
+            header_item.setText("☑" if self.all_selected else "☐")
+        
+        for row in range(self.table.rowCount()):
+            checkbox_widget = self.table.cellWidget(row, 0)
+            if checkbox_widget:
+                checkbox = checkbox_widget.findChild(QCheckBox)
+                if checkbox:
+                    checkbox.setChecked(self.all_selected)
+    
+    def header_clicked(self, index):
+        """Handle header click to toggle select all."""
+        if index == 0:
+            self.toggle_all_checkboxes()
     
     def add_distributor(self):
         """Add new distributor."""
@@ -105,38 +152,50 @@ class DistributorsPanel(QWidget):
             QMessageBox.warning(self, "No Selection", "Please select a distributor to edit.")
             return
         
-        distributor_id = int(self.table.item(selected_rows[0].row(), 0).text())
+        # Get distributor_id from checkbox widget
+        row = selected_rows[0].row()
+        checkbox_widget = self.table.cellWidget(row, 0)
+        checkbox = checkbox_widget.findChild(QCheckBox)
+        distributor_id = checkbox.property("distributor_id")
         dialog = DistributorDialog(self, distributor_id)
         if dialog.exec():
             self.load_distributors()
     
     def delete_distributor(self):
-        """Delete selected distributor."""
-        selected_rows = self.table.selectedIndexes()
-        if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select a distributor to delete.")
+        """Delete selected distributor(s)."""
+        # Collect checked distributors
+        selected_ids = []
+        for row in range(self.table.rowCount()):
+            checkbox_widget = self.table.cellWidget(row, 0)
+            if checkbox_widget:
+                checkbox = checkbox_widget.findChild(QCheckBox)
+                if checkbox and checkbox.isChecked():
+                    selected_ids.append(checkbox.property("distributor_id"))
+        
+        if not selected_ids:
+            QMessageBox.warning(self, "No Selection", "Please select at least one distributor to delete.")
             return
         
-        distributor_id = int(self.table.item(selected_rows[0].row(), 0).text())
-        
+        count = len(selected_ids)
         reply = QMessageBox.question(
             self, "Confirm Delete",
-            "Are you sure you want to delete this distributor?\nAll associated data will be removed.",
+            f"Are you sure you want to delete {count} distributor(s)?\nAll associated data will be removed.",
             QMessageBox.Yes | QMessageBox.No
         )
         
         if reply == QMessageBox.Yes:
             session = db_manager.get_session()
             try:
-                distributor = session.query(Distributor).get(distributor_id)
-                if distributor:
-                    session.delete(distributor)
-                    session.commit()
-                    self.load_distributors()
-                    QMessageBox.information(self, "Success", "Distributor deleted successfully.")
+                for distributor_id in selected_ids:
+                    distributor = session.query(Distributor).get(distributor_id)
+                    if distributor:
+                        session.delete(distributor)
+                session.commit()
+                self.load_distributors()
+                QMessageBox.information(self, "Success", f"{count} distributor(s) deleted successfully.")
             except Exception as e:
                 session.rollback()
-                QMessageBox.critical(self, "Error", f"Error deleting distributor: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Error deleting distributors: {str(e)}")
             finally:
                 session.close()
 
@@ -218,10 +277,26 @@ class DistributorDialog(QDialog):
                     distributor.name = name
                     distributor.purchase_rate = purchase_rate
             else:
-                # Create new
+                # Create new - generate display_id
+                first_letter = name[0].upper() if name else 'D'
+                # Find highest number for this letter
+                existing = session.query(Distributor).filter(
+                    Distributor.display_id.like(f"{first_letter}%")
+                ).all()
+                max_num = 0
+                for dist in existing:
+                    if dist.display_id and len(dist.display_id) > 1:
+                        try:
+                            num = int(dist.display_id[1:])
+                            max_num = max(max_num, num)
+                        except ValueError:
+                            pass
+                display_id = f"{first_letter}{max_num + 1:03d}"
+                
                 distributor = Distributor(
                     name=name,
-                    purchase_rate=purchase_rate
+                    purchase_rate=purchase_rate,
+                    display_id=display_id
                 )
                 session.add(distributor)
             

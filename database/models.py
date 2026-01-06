@@ -23,6 +23,7 @@ class Distributor(Base):
     __tablename__ = 'distributors'
     
     id = Column(Integer, primary_key=True)
+    display_id = Column(String(10), unique=True, nullable=True)
     name = Column(String(200), nullable=False)
     purchase_rate = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime, default=datetime.now)
@@ -37,6 +38,7 @@ class Party(Base):
     __tablename__ = 'parties'
     
     id = Column(Integer, primary_key=True)
+    display_id = Column(String(10), unique=True, nullable=True)
     name = Column(String(200), nullable=False)
     sell_rate = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime, default=datetime.now)
