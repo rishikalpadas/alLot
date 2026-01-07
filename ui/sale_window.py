@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDate, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
-from database.models import Party, Product
+from database.models import Party, Product, Purchase
 from database.db_manager import db_manager
 from services.pricing_service import PricingService
 from services.inventory_service import InventoryService
@@ -367,7 +367,66 @@ class SaleWindow(QWidget):
             return False, "Invalid range: To No. must be >= From No., both > 0."
         if rate_spin is None or rate_spin.value() <= 0:
             return False, "Rate must be greater than 0."
+        
+        # Check if this range is available in stock
+        ticket_id = ticket_combo.currentData()
+        from_no = from_spin.value()
+        to_no = to_spin.value()
+        sale_date = self.date_edit.date().toPython()
+        
+        in_stock, err = self.check_stock_availability(ticket_id, from_no, to_no, sale_date)
+        if not in_stock:
+            return False, err
+        
         return True, None
+    
+    def check_stock_availability(self, ticket_id, from_no, to_no, sale_date):
+        """Check if the sale range is within available purchased stock and sale date is on/before purchase date."""
+        session = db_manager.get_session()
+        try:
+            from datetime import datetime, time
+            from_dt = datetime.combine(sale_date, time.min)
+            to_dt = datetime.combine(sale_date, time.max)
+            
+            # Get all purchases for this ticket (not just the current date)
+            all_purchases = session.query(Purchase).filter(
+                Purchase.product_id == ticket_id
+            ).all()
+            
+            if not all_purchases:
+                return False, f"No stock available for this ticket"
+            
+            # Extract all purchased ranges from notes and check date constraints
+            purchased_ranges = []
+            import re
+            pattern = r"\|(\d+)-(\d+)\s*\|"
+            
+            for purchase in all_purchases:
+                # Check if sale_date is on or before purchase (draw) date
+                if sale_date > purchase.purchase_date.date():
+                    continue  # Skip this purchase, sale date is after draw date
+                
+                if purchase.notes:
+                    for line in purchase.notes.splitlines():
+                        m = re.search(pattern, line)
+                        if m:
+                            purch_from = int(m.group(1))
+                            purch_to = int(m.group(2))
+                            purchased_ranges.append((purch_from, purch_to, purchase.purchase_date.date()))
+            
+            if not purchased_ranges:
+                return False, f"No valid stock for sale. All available tickets have draw dates before {sale_date.strftime('%d-%m-%y')}"
+            
+            # Check if sale range is within any purchased range
+            for purch_from, purch_to, purch_date in purchased_ranges:
+                if from_no >= purch_from and to_no <= purch_to:
+                    return True, None
+            
+            # Not found in any range
+            ranges_str = ", ".join([f"{f}-{t} (Draw: {d.strftime('%d-%m-%y')})" for f, t, d in purchased_ranges])
+            return False, f"Sale range {from_no}-{to_no} is not in stock. Available: {ranges_str}"
+        finally:
+            session.close()
 
     def save_current_session(self):
         """Save current table entries to session storage."""
