@@ -74,6 +74,11 @@ class PurchaseWindow(QWidget):
         header_layout.addLayout(date_layout)
 
         header_layout.addStretch()
+        # Report button (F6)
+        report_btn = QPushButton("Report (F6)")
+        report_btn.setStyleSheet("padding: 8px 12px;")
+        report_btn.clicked.connect(self.open_report)
+        header_layout.addWidget(report_btn)
         layout.addLayout(header_layout)
 
         # Sale entries table
@@ -134,6 +139,11 @@ class PurchaseWindow(QWidget):
         
         # Auto-focus first field
         self.distributor_combo.setFocus()
+
+    def open_report(self):
+        from .date_range_report_dialog import DateRangeReportDialog
+        dlg = DateRangeReportDialog(self, mode="purchase")
+        dlg.exec()
 
     def add_row(self):
         row = self.table.rowCount()
@@ -532,7 +542,7 @@ class PurchaseWindow(QWidget):
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QKeyEvent
         
-        # Handle F9 and F10 globally (regardless of which widget has focus)
+        # Handle F9, F10 and F6 globally (regardless of which widget has focus)
         if event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_F9:
                 self.save_current_session()
@@ -540,6 +550,9 @@ class PurchaseWindow(QWidget):
                 return True
             elif event.key() == Qt.Key_F10:
                 self.save_purchase()
+                return True
+            elif event.key() == Qt.Key_F6:
+                self.open_report()
                 return True
         
         # Check if it's Enter key on date edit when table is empty
