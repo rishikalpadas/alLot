@@ -57,29 +57,6 @@ class DistributorsPanel(QWidget):
         """)
         button_layout.addWidget(add_btn)
         
-        self.edit_btn = QPushButton(" Edit")
-        self.edit_btn.setIcon(qta.icon('fa5s.edit', color='white'))
-        self.edit_btn.clicked.connect(self.edit_distributor)
-        self.edit_btn.setCursor(Qt.PointingHandCursor)
-        self.edit_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: 500;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: #0b7dda;
-            }
-            QPushButton:pressed {
-                background-color: #0a6ebd;
-            }
-        """)
-        button_layout.addWidget(self.edit_btn)
-        
         self.delete_btn = QPushButton(" Delete")
         self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.delete_btn.clicked.connect(self.delete_distributor)
@@ -103,8 +80,7 @@ class DistributorsPanel(QWidget):
         """)
         button_layout.addWidget(self.delete_btn)
         
-        # Initially hide edit and delete buttons
-        self.edit_btn.setVisible(False)
+        # Initially hide delete button (only show when selection exists)
         self.delete_btn.setVisible(False)
         
         button_layout.addStretch()
@@ -134,6 +110,7 @@ class DistributorsPanel(QWidget):
         self.table.itemChanged.connect(self.on_item_changed)
         self.table.itemSelectionChanged.connect(self.update_buttons)
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)  # Enable Ctrl+click multi-select
@@ -274,16 +251,10 @@ class DistributorsPanel(QWidget):
                 break
         
         if has_new_row or count == 0:
-            # No selection or new row selected: hide both buttons
-            self.edit_btn.setVisible(False)
+            # No selection or new row selected: hide delete button
             self.delete_btn.setVisible(False)
-        elif count == 1:
-            # Single selection: show both buttons
-            self.edit_btn.setVisible(True)
-            self.delete_btn.setVisible(True)
         else:
-            # Multiple selection: show only delete button
-            self.edit_btn.setVisible(False)
+            # Any selection: show delete button
             self.delete_btn.setVisible(True)
     
     def save_new_row(self, row):
@@ -453,6 +424,23 @@ class DistributorsPanel(QWidget):
         self.table.scrollToBottom()
         self.table.setCurrentCell(row, 2)
         self.table.editItem(name_item)
+    
+    def on_item_double_clicked(self, item):
+        """Handle double-click to edit distributor."""
+        row = item.row()
+        serial_item = self.table.item(row, 0)
+        
+        # Don't allow editing new rows via double-click
+        if serial_item and serial_item.text() == "*":
+            return
+        
+        rate_item = self.table.item(row, 3)
+        if rate_item:
+            distributor_id = rate_item.data(Qt.UserRole)
+            if distributor_id:
+                dialog = DistributorDialog(self, distributor_id)
+                if dialog.exec():
+                    self.load_distributors()
     
     def edit_distributor(self):
         """Edit selected distributor."""
