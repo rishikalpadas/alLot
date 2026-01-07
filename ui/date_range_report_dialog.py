@@ -1,5 +1,7 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDateEdit, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDateEdit, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtGui import QPainter, QTextDocument
+from PySide6.QtPrintSupport import QPrinter, QPrintDialog
 from database.db_manager import db_manager
 from database.models import Distributor, Party, Product, Purchase, Sale
 import re
@@ -18,7 +20,7 @@ class DateRangeReportDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # Date range controls
+        # Date range and filter controls
         top = QHBoxLayout()
         top.setSpacing(10)
         top.addWidget(QLabel("From:"))
@@ -31,11 +33,24 @@ class DateRangeReportDialog(QDialog):
         self.to_date.setCalendarPopup(True)
         self.to_date.setDate(QDate.currentDate())
         top.addWidget(self.to_date)
+        
+        # Distributor/Party dropdown
+        filter_label = QLabel("Distributor:" if self.mode == "purchase" else "Party:")
+        top.addWidget(filter_label)
+        self.filter_combo = QComboBox()
+        self.populate_filter_combo()
+        top.addWidget(self.filter_combo)
+        
         top.addStretch()
 
         self.load_btn = QPushButton("Load")
         self.load_btn.clicked.connect(self.load_report)
         top.addWidget(self.load_btn)
+        
+        self.print_btn = QPushButton("Print")
+        self.print_btn.clicked.connect(self.print_report)
+        top.addWidget(self.print_btn)
+        
         layout.addLayout(top)
 
         # Results table
@@ -66,6 +81,23 @@ class DateRangeReportDialog(QDialog):
         amount = qty * rate
         return ticket, series, int(from_no), int(to_no), qty, rate, amount
 
+    def populate_filter_combo(self):
+        """Load all distributors or parties into the filter dropdown."""
+        session = db_manager.get_session()
+        try:
+            self.filter_combo.clear()
+            self.filter_combo.addItem("All " + ("Distributors" if self.mode == "purchase" else "Parties"), None)
+            
+            if self.mode == "purchase":
+                items = session.query(Distributor).order_by(Distributor.name).all()
+            else:
+                items = session.query(Party).order_by(Party.name).all()
+            
+            for item in items:
+                self.filter_combo.addItem(item.name, item.id)
+        finally:
+            session.close()
+
     def load_report(self):
         session = db_manager.get_session()
         self.table.setRowCount(0)
@@ -78,26 +110,19 @@ class DateRangeReportDialog(QDialog):
             from_dt = datetime.combine(from_dt, time.min)
             to_dt = datetime.combine(to_dt, time.max)
 
-            print(f"[Report] Date range: {from_dt} to {to_dt}")
+            # Get selected distributor/party ID
+            selected_id = self.filter_combo.currentData()
             
             if self.mode == "purchase":
-                # First, check ALL purchase records to debug
-                all_rows = session.query(Purchase).all()
-                print(f"[Report] Total Purchase records in DB: {len(all_rows)}")
-                for r in all_rows:
-                    print(f"[Report]   - Purchase ID {r.id}: date={r.purchase_date}, distributor={r.distributor.name if r.distributor else 'None'}")
-                
-                # Now filter by date
-                rows = session.query(Purchase).filter(Purchase.purchase_date >= from_dt, Purchase.purchase_date <= to_dt).all()
-                print(f"[Report] Filtered Purchase records: {len(rows)}")
+                query = session.query(Purchase).filter(Purchase.purchase_date >= from_dt, Purchase.purchase_date <= to_dt)
+                if selected_id is not None:
+                    query = query.filter(Purchase.distributor_id == selected_id)
+                rows = query.all()
             else:
-                all_rows = session.query(Sale).all()
-                print(f"[Report] Total Sale records in DB: {len(all_rows)}")
-                for r in all_rows:
-                    print(f"[Report]   - Sale ID {r.id}: date={r.sale_date}, party={r.party.name if r.party else 'None'}")
-                
-                rows = session.query(Sale).filter(Sale.sale_date >= from_dt, Sale.sale_date <= to_dt).all()
-                print(f"[Report] Filtered Sale records: {len(rows)}")
+                query = session.query(Sale).filter(Sale.sale_date >= from_dt, Sale.sale_date <= to_dt)
+                if selected_id is not None:
+                    query = query.filter(Sale.party_id == selected_id)
+                rows = query.all()
 
             total_qty = 0
             total_amount = 0.0
@@ -106,11 +131,9 @@ class DateRangeReportDialog(QDialog):
                 date_val = row.purchase_date if self.mode == "purchase" else row.sale_date
                 name = row.distributor.name if self.mode == "purchase" else row.party.name
                 if row.notes:
-                    print(f"[Report] Processing notes: {row.notes}")
                     for line in row.notes.splitlines():
                         parsed = self.parse_entry_line(line)
                         if not parsed:
-                            print(f"[Report] Failed to parse line: {line}")
                             continue
                         ticket, series, from_no, to_no, qty, rate, amount = parsed
                         total_qty += qty
@@ -128,3 +151,33 @@ class DateRangeReportDialog(QDialog):
                         self.table.setItem(r, 8, QTableWidgetItem(f"{amount:.2f}"))
         finally:
             session.close()
+
+    def print_report(self):
+        """Print the current report table using a simple HTML document for correct layout."""
+        from PySide6.QtPrintSupport import QPrintDialog
+        printer = QPrinter(QPrinter.HighResolution)
+        dialog = QPrintDialog(printer, self)
+
+        if dialog.exec() == QDialog.Accepted:
+            from_date = self.from_date.date().toString("dd-MM-yyyy")
+            to_date = self.to_date.date().toString("dd-MM-yyyy")
+            filter_name = self.filter_combo.currentText()
+            title = f"{'Purchase' if self.mode == 'purchase' else 'Sale'} Report ({from_date} to {to_date}) - {filter_name}"
+
+            # Build HTML table from current data
+            headers = ["Date", "Name", "Ticket", "Series", "From", "To", "Qty", "Rate", "Amount"]
+            html = ["<html><head><style>table { border-collapse: collapse; width: 100%; font-size: 10pt; } th, td { border: 1px solid #666; padding: 4px; text-align: left; } th { background: #eee; }</style></head><body>"]
+            html.append(f"<h3>{title}</h3>")
+            html.append("<table><tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
+            for row in range(self.table.rowCount()):
+                html.append("<tr>")
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    text = item.text() if item else ""
+                    html.append(f"<td>{text}</td>")
+                html.append("</tr>")
+            html.append("</table></body></html>")
+
+            doc = QTextDocument()
+            doc.setHtml("".join(html))
+            doc.print_(printer)
