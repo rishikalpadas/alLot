@@ -227,27 +227,27 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(10, 20, 10, 20)
         
         # Dashboard
-        btn_dashboard = self.create_sidebar_button("Dashboard")
+        btn_dashboard = self.create_sidebar_button("Dashboard (F1)")
         btn_dashboard.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.dashboard_home))
         sidebar_layout.addWidget(btn_dashboard)
         
         # Purchase
-        btn_purchase = self.create_sidebar_button("Purchase")
+        btn_purchase = self.create_sidebar_button("Purchase (F2)")
         btn_purchase.clicked.connect(self.show_purchase)
         sidebar_layout.addWidget(btn_purchase)
         
         # Sale
-        btn_sale = self.create_sidebar_button("Sale")
+        btn_sale = self.create_sidebar_button("Sale (F3)")
         btn_sale.clicked.connect(self.show_sale)
         sidebar_layout.addWidget(btn_sale)
         
         # View Stock
-        btn_stock = self.create_sidebar_button("View Stock")
+        btn_stock = self.create_sidebar_button("View Stock (F4)")
         btn_stock.clicked.connect(self.show_stock)
         sidebar_layout.addWidget(btn_stock)
         
         # Control Panel
-        btn_control_panel = self.create_sidebar_button("Control Panel")
+        btn_control_panel = self.create_sidebar_button("Control Panel (F5)")
         btn_control_panel.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.control_panel_home))
         sidebar_layout.addWidget(btn_control_panel)
         

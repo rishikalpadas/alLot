@@ -18,6 +18,7 @@ class PricingService:
         Returns:
             Float rate or None if not found
         """
+        from database.models import Distributor
         session = db_manager.get_session()
         try:
             price = session.query(DistributorPrice).filter_by(
@@ -25,7 +26,12 @@ class PricingService:
                 product_id=product_id
             ).first()
             
-            return price.purchase_rate if price else None
+            if price:
+                return price.purchase_rate
+            
+            # Fallback to distributor's default rate
+            distributor = session.query(Distributor).get(distributor_id)
+            return distributor.purchase_rate if distributor else 0.0
         finally:
             session.close()
     
@@ -41,6 +47,7 @@ class PricingService:
         Returns:
             Float rate or None if not found
         """
+        from database.models import Party
         session = db_manager.get_session()
         try:
             price = session.query(PartyPrice).filter_by(
@@ -48,7 +55,12 @@ class PricingService:
                 product_id=product_id
             ).first()
             
-            return price.sale_rate if price else None
+            if price:
+                return price.sale_rate
+            
+            # Fallback to party's default rate
+            party = session.query(Party).get(party_id)
+            return party.sell_rate if party else 0.0
         finally:
             session.close()
     

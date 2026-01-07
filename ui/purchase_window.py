@@ -28,6 +28,7 @@ class PurchaseWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.products = []
+        self.session_entries = []  # Store current session entries
         self.init_ui()
 
     def init_ui(self):
@@ -68,21 +69,19 @@ class PurchaseWindow(QWidget):
         self.date_edit.setMinimumWidth(150)
         self.date_edit.setMinimumHeight(40)
         self.date_edit.setStyleSheet("font-size: 12px; padding: 8px;")
+        self.date_edit.installEventFilter(self)  # Install event filter for Enter key
         date_layout.addWidget(self.date_edit)
         header_layout.addLayout(date_layout)
 
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Table controls
-        controls_layout = QHBoxLayout()
-        add_row_btn = QPushButton("Add Row")
-        add_row_btn.clicked.connect(self.add_row)
-        controls_layout.addWidget(add_row_btn)
-        controls_layout.addStretch()
-        layout.addLayout(controls_layout)
+        # Instructions
+        instructions = QLabel("F9: Clear Entries | F10: Save | Enter on date to start adding entries")
+        instructions.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
+        layout.addWidget(instructions)
 
-        # Purchase entries table
+        # Sale entries table
         self.table = QTableWidget()
         self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
@@ -134,10 +133,15 @@ class PurchaseWindow(QWidget):
         finally:
             session.close()
 
-        # Reset table for fresh entry session
-        self.table.setRowCount(0)
-        self.add_row()
-        self.update_totals()
+        # Restore session entries if they exist
+        if self.session_entries:
+            self.restore_session_entries()
+        
+        # Install event filter on self to catch F9/F10 globally (after all widgets created)
+        self.installEventFilter(self)
+        
+        # Auto-focus first field
+        self.distributor_combo.setFocus()
 
     def add_row(self):
         row = self.table.rowCount()
@@ -167,8 +171,10 @@ class PurchaseWindow(QWidget):
         from_spin.setRange(0, 999999)
         to_spin = QSpinBox()
         to_spin.setRange(0, 999999)
+        to_spin.setKeyboardTracking(False)  # Only update on edit finish
         from_spin.valueChanged.connect(lambda _=None, r=row: self.on_range_changed(r))
-        to_spin.valueChanged.connect(lambda _=None, r=row: self.on_range_changed(r))
+        to_spin.valueChanged.connect(lambda _=None, r=row: self.on_to_changed(r))
+        to_spin.installEventFilter(self)
         self.table.setCellWidget(row, self.COL_FROM, from_spin)
         self.table.setCellWidget(row, self.COL_TO, to_spin)
 
@@ -183,6 +189,7 @@ class PurchaseWindow(QWidget):
         rate_spin.setRange(0.00, 999999)
         rate_spin.setDecimals(2)
         rate_spin.valueChanged.connect(lambda _=None, r=row: self.recalc_row_amount(r))
+        rate_spin.installEventFilter(self)  # Install event filter for Enter key
         self.table.setCellWidget(row, self.COL_RATE, rate_spin)
 
         # Column: Amount (read-only)
@@ -212,17 +219,69 @@ class PurchaseWindow(QWidget):
                 edit.setText(upper)
                 edit.blockSignals(old_block)
 
+    def on_to_changed(self, row):
+        """Handle To No. changes with smart auto-completion."""
+        from_spin = self.table.cellWidget(row, self.COL_FROM)
+        to_spin = self.table.cellWidget(row, self.COL_TO)
+        if not (from_spin and to_spin):
+            return
+        
+        from_val = from_spin.value()
+        to_val = to_spin.value()
+        
+        # Smart auto-completion: if to_val is shorter than from_val, auto-complete
+        if from_val > 0 and to_val > 0:
+            from_str = str(from_val)
+            to_str = str(to_val)
+            
+            # If to_val has fewer digits, auto-complete from from_val
+            if len(to_str) < len(from_str):
+                # Replace last N digits of from_val with to_val
+                prefix = from_str[:-len(to_str)]
+                completed = int(prefix + to_str)
+                if completed != to_val:
+                    to_spin.blockSignals(True)
+                    to_spin.setValue(completed)
+                    to_spin.blockSignals(False)
+        
+        self.on_range_changed(row)
+    
     def on_range_changed(self, row):
         from_spin = self.table.cellWidget(row, self.COL_FROM)
         to_spin = self.table.cellWidget(row, self.COL_TO)
         qty_item = self.table.item(row, self.COL_QTY)
-        if not (from_spin and to_spin and qty_item):
+        ticket_combo = self.table.cellWidget(row, self.COL_TICKET)
+        if not (from_spin and to_spin and qty_item and ticket_combo):
             return
         f = from_spin.value()
         t = to_spin.value()
-        qty = t - f + 1 if t >= f and f > 0 and t > 0 else 0
+        base_qty = t - f + 1 if t >= f and f > 0 and t > 0 else 0
+        
+        # Extract ticket multiplier from ticket name (e.g., M5 -> 5, D10 -> 10, E200 -> 200)
+        ticket_name = ticket_combo.currentText()
+        multiplier = self.extract_ticket_multiplier(ticket_name)
+        
+        qty = base_qty * multiplier
         qty_item.setText(str(qty))
         self.recalc_row_amount(row)
+    
+    def extract_ticket_multiplier(self, ticket_name):
+        """Extract numeric multiplier from ticket name (e.g., 'M5' -> 5, 'D10' -> 10)."""
+        import re
+        match = re.search(r'\d+', ticket_name)
+        return int(match.group()) if match else 1
+    
+    def is_row_empty(self, row):
+        """Check if a row is completely empty (no data entered)."""
+        ticket_combo = self.table.cellWidget(row, self.COL_TICKET)
+        from_spin = self.table.cellWidget(row, self.COL_FROM)
+        to_spin = self.table.cellWidget(row, self.COL_TO)
+        
+        # Row is empty if ticket is not selected and from/to are both 0
+        ticket_selected = ticket_combo and ticket_combo.currentData() is not None
+        has_range = from_spin and to_spin and (from_spin.value() > 0 or to_spin.value() > 0)
+        
+        return not ticket_selected and not has_range
 
     def on_ticket_changed(self, row):
         # When ticket or distributor changes, auto-populate rate
@@ -234,10 +293,11 @@ class PurchaseWindow(QWidget):
         product_id = ticket_combo.currentData()
         if product_id:
             rate = PricingService.get_purchase_rate(dist_id, product_id)
-            if rate is not None:
-                old = rate_spin.blockSignals(True)
-                rate_spin.setValue(float(rate))
-                rate_spin.blockSignals(old)
+            old = rate_spin.blockSignals(True)
+            rate_spin.setValue(float(rate) if rate is not None else 0.0)
+            rate_spin.blockSignals(old)
+        # Recalculate quantity with new ticket multiplier
+        self.on_range_changed(row)
         self.recalc_row_amount(row)
 
     def recalc_row_amount(self, row):
@@ -299,12 +359,7 @@ class PurchaseWindow(QWidget):
 
         if ticket_combo is None or ticket_combo.currentData() is None:
             return False, "Please select a ticket."
-        if series_edit is None or not series_edit.text():
-            return False, "Series is required (e.g., 61A)."
-        # Validator ensures pattern, re-check for safety
-        import re as _re
-        if not _re.match(r"^\d+[A-Z]$", series_edit.text()):
-            return False, "Series must be digits followed by a letter (e.g., 61A)."
+        # Series can be blank - skip validation
         if from_spin is None or to_spin is None:
             return False, "From/To numbers are required."
         if to_spin.value() < from_spin.value() or from_spin.value() <= 0:
@@ -313,6 +368,62 @@ class PurchaseWindow(QWidget):
             return False, "Rate must be greater than 0."
         return True, None
 
+    def save_current_session(self):
+        """Save current table entries to session storage."""
+        self.session_entries = []
+        for r in range(self.table.rowCount()):
+            ticket_combo = self.table.cellWidget(r, self.COL_TICKET)
+            series_edit = self.table.cellWidget(r, self.COL_SERIES)
+            from_spin = self.table.cellWidget(r, self.COL_FROM)
+            to_spin = self.table.cellWidget(r, self.COL_TO)
+            rate_spin = self.table.cellWidget(r, self.COL_RATE)
+            
+            if ticket_combo and series_edit and from_spin and to_spin and rate_spin:
+                entry = {
+                    'ticket_id': ticket_combo.currentData(),
+                    'series': series_edit.text(),
+                    'from_no': from_spin.value(),
+                    'to_no': to_spin.value(),
+                    'rate': rate_spin.value()
+                }
+                self.session_entries.append(entry)
+    
+    def restore_session_entries(self):
+        """Restore session entries to table."""
+        self.table.setRowCount(0)
+        for entry in self.session_entries:
+            row = self.table.rowCount()
+            self.add_row()
+            
+            # Restore values
+            ticket_combo = self.table.cellWidget(row, self.COL_TICKET)
+            series_edit = self.table.cellWidget(row, self.COL_SERIES)
+            from_spin = self.table.cellWidget(row, self.COL_FROM)
+            to_spin = self.table.cellWidget(row, self.COL_TO)
+            rate_spin = self.table.cellWidget(row, self.COL_RATE)
+            
+            if ticket_combo:
+                idx = ticket_combo.findData(entry['ticket_id'])
+                if idx >= 0:
+                    ticket_combo.setCurrentIndex(idx)
+            if series_edit:
+                series_edit.setText(entry['series'])
+            if from_spin:
+                from_spin.setValue(entry['from_no'])
+            if to_spin:
+                to_spin.setValue(entry['to_no'])
+            if rate_spin:
+                rate_spin.setValue(entry['rate'])
+        
+        self.update_totals()
+    
+    def clear_session(self):
+        """Clear session entries (F9 handler)."""
+        self.session_entries = []
+        self.table.setRowCount(0)
+        self.update_totals()
+        self.distributor_combo.setFocus()
+    
     def save_purchase(self):
         if not self.distributor_combo.currentData():
             QMessageBox.warning(self, "Validation Error", "Please select a distributor.")
@@ -324,6 +435,10 @@ class PurchaseWindow(QWidget):
         items = []
         notes_rows = []
         for r in range(self.table.rowCount()):
+            # Skip empty rows
+            if self.is_row_empty(r):
+                continue
+                
             ok, err = self.validate_row(r)
             if not ok:
                 QMessageBox.warning(self, "Validation Error", f"Row {r+1}: {err}")
@@ -345,6 +460,11 @@ class PurchaseWindow(QWidget):
             notes_rows.append(
                 f"{ticket_combo.currentText()} | Series {series_edit.text()} | {from_spin.value()}-{to_spin.value()} | Qty {qty} @ {rate_spin.value():.2f}"
             )
+        
+        # Check if we have any valid entries after skipping empty rows
+        if not items:
+            QMessageBox.warning(self, "Validation Error", "Please add at least one valid entry.")
+            return
 
         distributor_id = self.distributor_combo.currentData()
         purchase_date = self.date_edit.date().toPython()
@@ -355,6 +475,7 @@ class PurchaseWindow(QWidget):
         )
         if success:
             QMessageBox.information(self, "Success", f"Purchase saved successfully!\n{message}")
+            self.session_entries = []  # Clear session after successful save
             self.clear_form()
         else:
             QMessageBox.critical(self, "Error", message)
@@ -362,5 +483,96 @@ class PurchaseWindow(QWidget):
     def clear_form(self):
         self.date_edit.setDate(QDate.currentDate())
         self.table.setRowCount(0)
-        self.add_row()
         self.update_totals()
+        self.distributor_combo.setFocus()
+    
+    def keyPressEvent(self, event):
+        """Handle Enter key to move between fields."""
+        from PySide6.QtGui import QKeyEvent
+        
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            # Move to next focusable widget
+            self.focusNextChild()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+    
+    def eventFilter(self, obj, event):
+        """Filter events to handle Enter on To spinbox, Rate spinbox, date edit, and F9/F10 globally."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+        
+        # Handle F9 and F10 globally (regardless of which widget has focus)
+        if event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_F9:
+                self.save_current_session()
+                self.clear_session()
+                return True
+            elif event.key() == Qt.Key_F10:
+                self.save_purchase()
+                return True
+        
+        # Check if it's Enter key on date edit when table is empty
+        if obj == self.date_edit and event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.table.rowCount() == 0:
+                self.add_row()
+                ticket_combo = self.table.cellWidget(0, self.COL_TICKET)
+                if ticket_combo:
+                    ticket_combo.setFocus()
+                return True
+        
+        # Check if it's Enter key on Rate spinbox
+        if event.type() == QEvent.KeyPress:
+            key_event = event
+            if key_event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                # Find which row this rate spinbox belongs to
+                for r in range(self.table.rowCount()):
+                    rate_spin = self.table.cellWidget(r, self.COL_RATE)
+                    if obj == rate_spin:
+                        # Interpret the current value
+                        rate_spin.interpretText()
+                        
+                        # Validate current row
+                        ok, err = self.validate_row(r)
+                        if ok:
+                            # Create new row and focus ticket
+                            self.add_row()
+                            next_ticket = self.table.cellWidget(r + 1, self.COL_TICKET)
+                            if next_ticket:
+                                next_ticket.setFocus()
+                        else:
+                            # Show validation error
+                            QMessageBox.warning(self, "Validation Error", f"Row {r+1}: {err}")
+                        
+                        return True
+        
+        # Check if it's Enter key on To spinbox
+        if event.type() == QEvent.KeyPress:
+            key_event = event
+            if key_event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                # Find which row this spinbox belongs to
+                for r in range(self.table.rowCount()):
+                    to_spin = self.table.cellWidget(r, self.COL_TO)
+                    if obj == to_spin:
+                        # Interpret the current value from line edit
+                        to_spin.interpretText()
+                        
+                        # Move focus to rate spinbox in same row
+                        rate_spin = self.table.cellWidget(r, self.COL_RATE)
+                        if rate_spin:
+                            rate_spin.setFocus()
+                            rate_spin.selectAll()
+                        
+                        return True
+        
+        return super().eventFilter(obj, event)
+    
+    def keyPressEvent(self, event):
+        """Handle Enter key to move between fields."""
+        from PySide6.QtGui import QKeyEvent
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            # Move to next focusable widget
+            self.focusNextChild()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
