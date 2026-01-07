@@ -83,9 +83,6 @@ class DistributorsPanel(QWidget):
         """)
         button_layout.addWidget(self.delete_btn)
         
-        # Initially hide delete button (only show when selection exists)
-        self.delete_btn.setVisible(False)
-        
         button_layout.addStretch()
         layout.addLayout(button_layout)
         
@@ -254,26 +251,11 @@ class DistributorsPanel(QWidget):
         return selected_ids
     
     def update_buttons(self):
-        """Update button visibility based on selection."""
+        """Keep cached selection for delete fallback; delete button stays visible."""
         selected_rows = self.table.selectionModel().selectedRows()
         selected_ids = self._collect_selected_ids(selected_rows)
         if selected_ids:
-            self.last_selected_ids = selected_ids  # Cache the selection in case focus changes
-
-        # Check if any selected row is a new row (serial = "*")
-        has_new_row = False
-        for index in selected_rows:
-            serial_item = self.table.item(index.row(), 0)
-            if serial_item and serial_item.text() == "*":
-                has_new_row = True
-                break
-
-        # Use cached selection when focus cleared
-        any_selection = bool(selected_ids or self.last_selected_ids)
-        if has_new_row or not any_selection:
-            self.delete_btn.setVisible(False)
-        else:
-            self.delete_btn.setVisible(True)
+            self.last_selected_ids = selected_ids
     
     def save_new_row(self, row):
         """Save the new distributor row to database."""
