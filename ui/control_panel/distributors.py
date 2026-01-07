@@ -1,7 +1,8 @@
 """Distributors management panel."""
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
-                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView)
+                               QLineEdit, QTextEdit, QLabel, QMessageBox, QHeaderView,
+                               QCheckBox)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QKeyEvent
 import qtawesome as qta
@@ -16,6 +17,7 @@ class DistributorsPanel(QWidget):
         super().__init__()
         self.removing_row = False  # Flag to prevent re-entrancy
         self.all_selected = False
+        self.last_selected_ids = []  # Keep last selection even if table loses focus
         self.init_ui()
         self.load_distributors()
     
@@ -61,6 +63,7 @@ class DistributorsPanel(QWidget):
         self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.delete_btn.clicked.connect(self.delete_distributor)
         self.delete_btn.setCursor(Qt.PointingHandCursor)
+        self.delete_btn.setFocusPolicy(Qt.NoFocus)  # Avoid clearing table selection
         self.delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
@@ -208,6 +211,7 @@ class DistributorsPanel(QWidget):
         try:
             distributors = session.query(Distributor).order_by(Distributor.id).all()
             self.table.setRowCount(len(distributors))
+            self.last_selected_ids = []  # Reset cached selection on reload
             
             for row, dist in enumerate(distributors):
                 # Serial number - center aligned
@@ -236,12 +240,26 @@ class DistributorsPanel(QWidget):
                 self.table.setItem(row, 3, rate_item)
         finally:
             session.close()
+
+    def _collect_selected_ids(self, selected_rows):
+        """Return distributor IDs from selected rows."""
+        selected_ids = []
+        for index in selected_rows:
+            row = index.row()
+            rate_item = self.table.item(row, 3)
+            if rate_item:
+                dist_id = rate_item.data(Qt.UserRole)
+                if dist_id:
+                    selected_ids.append(dist_id)
+        return selected_ids
     
     def update_buttons(self):
         """Update button visibility based on selection."""
         selected_rows = self.table.selectionModel().selectedRows()
-        count = len(selected_rows)
-        
+        selected_ids = self._collect_selected_ids(selected_rows)
+        if selected_ids:
+            self.last_selected_ids = selected_ids  # Cache the selection in case focus changes
+
         # Check if any selected row is a new row (serial = "*")
         has_new_row = False
         for index in selected_rows:
@@ -249,12 +267,12 @@ class DistributorsPanel(QWidget):
             if serial_item and serial_item.text() == "*":
                 has_new_row = True
                 break
-        
-        if has_new_row or count == 0:
-            # No selection or new row selected: hide delete button
+
+        # Use cached selection when focus cleared
+        any_selection = bool(selected_ids or self.last_selected_ids)
+        if has_new_row or not any_selection:
             self.delete_btn.setVisible(False)
         else:
-            # Any selection: show delete button
             self.delete_btn.setVisible(True)
     
     def save_new_row(self, row):
@@ -375,18 +393,12 @@ class DistributorsPanel(QWidget):
         header_item = self.table.horizontalHeaderItem(0)
         if header_item:
             header_item.setText("☑" if self.all_selected else "☐")
-        
         for row in range(self.table.rowCount()):
             checkbox_widget = self.table.cellWidget(row, 0)
             if checkbox_widget:
                 checkbox = checkbox_widget.findChild(QCheckBox)
                 if checkbox:
                     checkbox.setChecked(self.all_selected)
-    
-    def header_clicked(self, index):
-        """Handle header click to toggle select all."""
-        if index == 0:
-            self.toggle_all_checkboxes()
     
     def add_distributor(self):
         """Add new distributor with inline editing."""
@@ -462,20 +474,10 @@ class DistributorsPanel(QWidget):
     def delete_distributor(self):
         """Delete selected distributor(s)."""
         selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select at least one distributor to delete.")
-            return
-        
-        # Get distributor IDs from selected rows
-        selected_ids = []
-        for index in selected_rows:
-            row = index.row()
-            rate_item = self.table.item(row, 3)
-            if rate_item:
-                dist_id = rate_item.data(Qt.UserRole)
-                if dist_id:
-                    selected_ids.append(dist_id)
-        
+        selected_ids = self._collect_selected_ids(selected_rows)
+        if not selected_ids:
+            selected_ids = self.last_selected_ids  # Fallback when selection is lost due to focus change
+
         if not selected_ids:
             QMessageBox.warning(self, "No Selection", "Please select at least one distributor to delete.")
             return

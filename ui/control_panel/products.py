@@ -1,13 +1,18 @@
 """Tickets management panel."""
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                QTableWidget, QTableWidgetItem, QDialog, QFormLayout,
-                               QLineEdit, QLabel, QMessageBox, QHeaderView)
-from PySide6.QtCore import Qt, Signal
+                               QLineEdit, QLabel, QMessageBox, QHeaderView, QDateEdit, QComboBox, QSpinBox, QFileDialog)
+from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtGui import QIcon, QKeyEvent
 import qtawesome as qta
 import re
-from database.models import Product
+import shutil
+import os
+from pathlib import Path
+from datetime import datetime
+from database.models import Product, Purchase, Sale, Distributor, Party
 from database.db_manager import db_manager
+from .delete_records_dialog import DeleteRecordsDialog
 
 
 class TicketsPanel(QWidget):
@@ -16,6 +21,7 @@ class TicketsPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.removing_row = False  # Flag to prevent re-entrancy
+        self.last_selected_ids = []  # Keep last selection even if table loses focus
         self.init_ui()
         self.load_products()
     
@@ -68,6 +74,7 @@ class TicketsPanel(QWidget):
         self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.delete_btn.clicked.connect(self.delete_product)
         self.delete_btn.setCursor(Qt.PointingHandCursor)
+        self.delete_btn.setFocusPolicy(Qt.NoFocus)  # Avoid clearing table selection
         self.delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
@@ -195,26 +202,108 @@ class TicketsPanel(QWidget):
         options_container = QWidget()
         options_layout = QVBoxLayout(options_container)
         options_layout.setContentsMargins(0, 0, 0, 0)
-        options_layout.setSpacing(15)
+        options_layout.setSpacing(10)
         
-        # Placeholder for future options
-        options_title = QLabel("Quick Actions")
+        # Database Management Title
+        options_title = QLabel("Database Management")
         options_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #424242;")
         options_layout.addWidget(options_title)
         
-        # Placeholder text
-        placeholder = QLabel("Additional options will be\nadded here")
-        placeholder.setStyleSheet("""
-            color: #999;
-            font-size: 13px;
-            padding: 20px;
-            border: 2px dashed #E0E0E0;
-            border-radius: 6px;
-            background-color: #FAFAFA;
+        # Delete Database Button
+        delete_btn = QPushButton("🗑 Delete Records")
+        delete_btn.setCursor(Qt.PointingHandCursor)
+        delete_btn.clicked.connect(self.open_delete_dialog)
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 10px 12px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:pressed {
+                background-color: #b71c1c;
+            }
         """)
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setMinimumHeight(200)
-        options_layout.addWidget(placeholder)
+        options_layout.addWidget(delete_btn)
+        
+        # Backup Database Button
+        backup_btn = QPushButton("💾 Backup Database")
+        backup_btn.setCursor(Qt.PointingHandCursor)
+        backup_btn.clicked.connect(self.backup_database)
+        backup_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 10px 12px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #0b7dda;
+            }
+            QPushButton:pressed {
+                background-color: #0a6ebd;
+            }
+        """)
+        options_layout.addWidget(backup_btn)
+        
+        # Import Database Button
+        import_btn = QPushButton("📥 Import Database")
+        import_btn.setCursor(Qt.PointingHandCursor)
+        import_btn.clicked.connect(self.import_database)
+        import_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 12px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
+        options_layout.addWidget(import_btn)
+        
+        # Export Database Button
+        export_btn = QPushButton("📤 Export Database")
+        export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.clicked.connect(self.export_database)
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                padding: 10px 12px;
+                border-radius: 4px;
+                font-weight: 500;
+                text-align: left;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #E68900;
+            }
+            QPushButton:pressed {
+                background-color: #CC7700;
+            }
+        """)
+        options_layout.addWidget(export_btn)
         
         options_layout.addStretch()
         
@@ -228,6 +317,7 @@ class TicketsPanel(QWidget):
         try:
             products = session.query(Product).order_by(Product.id).all()
             self.table.setRowCount(len(products))
+            self.last_selected_ids = []  # Reset cached selection on reload
             
             for row, product in enumerate(products):
                 # Serial number - center aligned
@@ -244,11 +334,24 @@ class TicketsPanel(QWidget):
                 self.table.setItem(row, 1, name_item)
         finally:
             session.close()
-    
+
+    def _collect_selected_ids(self, selected_rows):
+        selected_ids = []
+        for index in selected_rows:
+            row = index.row()
+            name_item = self.table.item(row, 1)
+            if name_item:
+                product_id = name_item.data(Qt.UserRole)
+                if product_id:
+                    selected_ids.append(product_id)
+        return selected_ids
+
     def update_buttons(self):
         """Update button visibility based on selection."""
         selected_rows = self.table.selectionModel().selectedRows()
-        count = len(selected_rows)
+        selected_ids = self._collect_selected_ids(selected_rows)
+        if selected_ids:
+            self.last_selected_ids = selected_ids  # Cache the selection in case focus changes
         
         # Check if any selected row is a new row (serial = "*")
         has_new_row = False
@@ -258,11 +361,12 @@ class TicketsPanel(QWidget):
                 has_new_row = True
                 break
         
-        if has_new_row or count == 0:
+        any_selection = bool(selected_ids or self.last_selected_ids)
+        if has_new_row or not any_selection:
             # No selection or new row selected: hide delete button
             self.delete_btn.setVisible(False)
         else:
-            # Any selection: show delete button
+            # Any selection (live or cached): show delete button
             self.delete_btn.setVisible(True)
     
     def save_new_row(self, row):
@@ -428,18 +532,10 @@ class TicketsPanel(QWidget):
         """Delete selected ticket(s)."""
         # Collect selected products
         selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select at least one ticket to delete.")
-            return
-        
-        selected_ids = []
-        for index in selected_rows:
-            row = index.row()
-            name_item = self.table.item(row, 1)
-            product_id = name_item.data(Qt.UserRole)
-            if product_id:
-                selected_ids.append(product_id)
-        
+        selected_ids = self._collect_selected_ids(selected_rows)
+        if not selected_ids:
+            selected_ids = self.last_selected_ids  # Fallback when selection is lost due to focus change
+
         if not selected_ids:
             QMessageBox.warning(self, "No Selection", "Please select at least one ticket to delete.")
             return
@@ -466,6 +562,84 @@ class TicketsPanel(QWidget):
                 QMessageBox.critical(self, "Error", f"Error deleting tickets: {str(e)}")
             finally:
                 session.close()
+    
+    def open_delete_dialog(self):
+        """Open dialog to delete database records."""
+        dialog = DeleteRecordsDialog(self)
+        dialog.exec()
+    
+    def backup_database(self):
+        """Backup the database."""
+        try:
+            db_path = os.path.expandvars(r'%APPDATA%\alLot\allot.db')
+            if not os.path.exists(db_path):
+                QMessageBox.warning(self, "Error", "Database file not found.")
+                return
+            
+            backup_dir = os.path.expandvars(r'%APPDATA%\alLot\backups')
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, f"allot_backup_{timestamp}.db")
+            
+            shutil.copy2(db_path, backup_path)
+            QMessageBox.information(self, "Success", f"Database backed up successfully to:\n{backup_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error backing up database: {str(e)}")
+    
+    def import_database(self):
+        """Import database from file."""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select Database File to Import",
+                os.path.expandvars(r'%USERPROFILE%\Downloads'),
+                "Database Files (*.db);;All Files (*)"
+            )
+            
+            if not file_path:
+                return
+            
+            db_path = os.path.expandvars(r'%APPDATA%\alLot\allot.db')
+            db_dir = os.path.dirname(db_path)
+            os.makedirs(db_dir, exist_ok=True)
+            
+            reply = QMessageBox.question(
+                self,
+                "Confirm Import",
+                "This will replace your current database. Continue?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                shutil.copy2(file_path, db_path)
+                QMessageBox.information(self, "Success", "Database imported successfully. Please restart the application.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error importing database: {str(e)}")
+    
+    def export_database(self):
+        """Export database to file."""
+        try:
+            save_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Database",
+                os.path.expandvars(r'%USERPROFILE%\Downloads'),
+                "Database Files (*.db);;All Files (*)"
+            )
+            
+            if not save_path:
+                return
+            
+            db_path = os.path.expandvars(r'%APPDATA%\alLot\allot.db')
+            
+            if not os.path.exists(db_path):
+                QMessageBox.warning(self, "Error", "Database file not found.")
+                return
+            
+            shutil.copy2(db_path, save_path)
+            QMessageBox.information(self, "Success", f"Database exported successfully to:\n{save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error exporting database: {str(e)}")
 
 class ProductDialog(QDialog):
     """Dialog for adding/editing ticket."""

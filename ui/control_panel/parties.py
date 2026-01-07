@@ -15,6 +15,7 @@ class PartiesPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.removing_row = False  # Flag to prevent re-entrancy
+        self.last_selected_ids = []  # Keep last selection even if table loses focus
         self.init_ui()
         self.load_parties()
     
@@ -58,6 +59,7 @@ class PartiesPanel(QWidget):
         self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.delete_btn.clicked.connect(self.delete_party)
         self.delete_btn.setCursor(Qt.PointingHandCursor)
+        self.delete_btn.setFocusPolicy(Qt.NoFocus)  # Avoid clearing table selection
         self.delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
@@ -183,6 +185,7 @@ class PartiesPanel(QWidget):
         try:
             parties = session.query(Party).order_by(Party.id).all()
             self.table.setRowCount(len(parties))
+            self.last_selected_ids = []  # Reset cached selection on reload
             
             for row, party in enumerate(parties):
                 # Serial number - center aligned
@@ -211,11 +214,24 @@ class PartiesPanel(QWidget):
                 self.table.setItem(row, 3, rate_item)
         finally:
             session.close()
-    
+
+    def _collect_selected_ids(self, selected_rows):
+        selected_ids = []
+        for index in selected_rows:
+            row = index.row()
+            rate_item = self.table.item(row, 3)
+            if rate_item:
+                party_id = rate_item.data(Qt.UserRole)
+                if party_id:
+                    selected_ids.append(party_id)
+        return selected_ids
+
     def update_buttons(self):
         """Update button visibility based on selection."""
         selected_rows = self.table.selectionModel().selectedRows()
-        count = len(selected_rows)
+        selected_ids = self._collect_selected_ids(selected_rows)
+        if selected_ids:
+            self.last_selected_ids = selected_ids  # Cache the selection in case focus changes
         
         # Check if any selected row is a new row (serial = "*")
         has_new_row = False
@@ -225,13 +241,14 @@ class PartiesPanel(QWidget):
                 has_new_row = True
                 break
         
-        if has_new_row or count == 0:
-            # No selection or new row selected: hide delete button
+        any_selection = bool(selected_ids or self.last_selected_ids)
+        if has_new_row or not any_selection:
+            # No selection/new row selected: hide delete button
             self.delete_btn.setVisible(False)
         else:
-            # Any selection: show delete button
+            # Any selection (live or cached): show delete button
             self.delete_btn.setVisible(True)
-    
+
     def save_new_row(self, row):
         """Save the new party row to database."""
         name_item = self.table.item(row, 2)
@@ -413,20 +430,11 @@ class PartiesPanel(QWidget):
     
     def delete_party(self):
         """Delete selected party/parties."""
-        # Collect selected parties
         selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select at least one party to delete.")
-            return
-        
-        selected_ids = []
-        for index in selected_rows:
-            row = index.row()
-            rate_item = self.table.item(row, 3)
-            party_id = rate_item.data(Qt.UserRole)
-            if party_id:
-                selected_ids.append(party_id)
-        
+        selected_ids = self._collect_selected_ids(selected_rows)
+        if not selected_ids:
+            selected_ids = self.last_selected_ids  # Fallback when selection is lost due to focus change
+
         if not selected_ids:
             QMessageBox.warning(self, "No Selection", "Please select at least one party to delete.")
             return
@@ -499,7 +507,7 @@ class PartyDialog(QDialog):
                 self.sell_rate_input.setText(str(party.sell_rate))
         finally:
             session.close()
-    
+
     def save(self):
         name = self.name_input.text().strip()
         sell_rate_text = self.sell_rate_input.text().strip()
