@@ -76,11 +76,6 @@ class PurchaseWindow(QWidget):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Instructions
-        instructions = QLabel("F9: Clear Entries | F10: Save | Enter on date to start adding entries")
-        instructions.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
-        layout.addWidget(instructions)
-
         # Sale entries table
         self.table = QTableWidget()
         self.table.setColumnCount(9)
@@ -107,17 +102,17 @@ class PurchaseWindow(QWidget):
         totals_layout.addWidget(self.total_amount_label)
         layout.addLayout(totals_layout)
 
-        # Footer buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        clear_btn = QPushButton("Clear")
-        clear_btn.clicked.connect(self.clear_form)
-        save_btn = QPushButton("Save Purchase")
-        save_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px;")
-        save_btn.clicked.connect(self.save_purchase)
-        button_layout.addWidget(clear_btn)
-        button_layout.addWidget(save_btn)
-        layout.addLayout(button_layout)
+        # Footer instructions
+        footer_instructions = QLabel("Press F9 to CLEAR entries and start fresh  |  Press F10 to SAVE all entries")
+        footer_instructions.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #fff; "
+            "background-color: #2196F3; padding: 12px; border-radius: 5px; text-align: center;"
+        )
+        footer_instructions.setAlignment(Qt.AlignCenter)
+        layout.addWidget(footer_instructions)
+        
+        # Install event filter on self to catch F9/F10 globally
+        self.installEventFilter(self)
 
     def refresh_data(self):
         """Load distributors and tickets (products)."""
@@ -136,9 +131,6 @@ class PurchaseWindow(QWidget):
         # Restore session entries if they exist
         if self.session_entries:
             self.restore_session_entries()
-        
-        # Install event filter on self to catch F9/F10 globally (after all widgets created)
-        self.installEventFilter(self)
         
         # Auto-focus first field
         self.distributor_combo.setFocus()
@@ -273,15 +265,14 @@ class PurchaseWindow(QWidget):
     
     def is_row_empty(self, row):
         """Check if a row is completely empty (no data entered)."""
-        ticket_combo = self.table.cellWidget(row, self.COL_TICKET)
         from_spin = self.table.cellWidget(row, self.COL_FROM)
         to_spin = self.table.cellWidget(row, self.COL_TO)
         
-        # Row is empty if ticket is not selected and from/to are both 0
-        ticket_selected = ticket_combo and ticket_combo.currentData() is not None
-        has_range = from_spin and to_spin and (from_spin.value() > 0 or to_spin.value() > 0)
+        # Row is empty if from/to are both at default value (0)
+        if not from_spin or not to_spin:
+            return True
         
-        return not ticket_selected and not has_range
+        return from_spin.value() == 0 and to_spin.value() == 0
 
     def on_ticket_changed(self, row):
         # When ticket or distributor changes, auto-populate rate
@@ -417,11 +408,28 @@ class PurchaseWindow(QWidget):
         
         self.update_totals()
     
+    def has_unsaved_entries(self):
+        """Check if there are any valid unsaved entries and table is not locked."""
+        # If table is disabled, entries are already saved
+        if not self.table.isEnabled():
+            return False
+        
+        # Check if at least one row has valid data
+        for r in range(self.table.rowCount()):
+            if not self.is_row_empty(r):
+                return True
+        return False
+    
     def clear_session(self):
         """Clear session entries (F9 handler)."""
         self.session_entries = []
         self.table.setRowCount(0)
         self.update_totals()
+        # Unlock and restore table
+        self.table.setEnabled(True)
+        self.table.setStyleSheet("")
+        self.distributor_combo.setEnabled(True)
+        self.date_edit.setEnabled(True)
         self.distributor_combo.setFocus()
     
     def save_purchase(self):
@@ -434,9 +442,12 @@ class PurchaseWindow(QWidget):
 
         items = []
         notes_rows = []
+        rows_to_remove = []  # Track empty rows to remove
+        
         for r in range(self.table.rowCount()):
-            # Skip empty rows
+            # Skip empty rows but track them for removal
             if self.is_row_empty(r):
+                rows_to_remove.append(r)
                 continue
                 
             ok, err = self.validate_row(r)
@@ -465,6 +476,17 @@ class PurchaseWindow(QWidget):
         if not items:
             QMessageBox.warning(self, "Validation Error", "Please add at least one valid entry.")
             return
+        
+        # Ask for confirmation before saving
+        reply = QMessageBox.question(
+            self, 
+            "Confirm Save", 
+            f"Do you want to save {len(items)} purchase entry(ies)?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
 
         distributor_id = self.distributor_combo.currentData()
         purchase_date = self.date_edit.date().toPython()
@@ -474,9 +496,17 @@ class PurchaseWindow(QWidget):
             distributor_id, purchase_date, items, None, notes
         )
         if success:
+            # Remove empty rows before locking
+            for r in reversed(rows_to_remove):
+                self.table.removeRow(r)
+            self.update_totals()
+            
             QMessageBox.information(self, "Success", f"Purchase saved successfully!\n{message}")
-            self.session_entries = []  # Clear session after successful save
-            self.clear_form()
+            # Lock the table and fade it
+            self.table.setEnabled(False)
+            self.table.setStyleSheet("opacity: 0.6; background-color: #f0f0f0;")
+            self.distributor_combo.setEnabled(False)
+            self.date_edit.setEnabled(False)
         else:
             QMessageBox.critical(self, "Error", message)
 

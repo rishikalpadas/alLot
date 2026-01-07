@@ -92,6 +92,41 @@ class MainWindow(QMainWindow):
         
         self.showMaximized()
     
+    def check_unsaved_before_switch(self):
+        """Check for unsaved entries in purchase/sale windows before switching screens."""
+        current_widget = self.stacked_widget.currentWidget()
+        
+        # Check if current screen is purchase or sale with unsaved entries
+        if current_widget == self.purchase_window and self.purchase_window.has_unsaved_entries():
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Entries",
+                "You have unsaved purchase entries. Do you want to save them?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Cancel
+            )
+            if reply == QMessageBox.Yes:
+                self.purchase_window.save_purchase()
+                return True
+            elif reply == QMessageBox.Cancel:
+                return False
+        
+        elif current_widget == self.sale_window and self.sale_window.has_unsaved_entries():
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Entries",
+                "You have unsaved sale entries. Do you want to save them?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Cancel
+            )
+            if reply == QMessageBox.Yes:
+                self.sale_window.save_sale()
+                return True
+            elif reply == QMessageBox.Cancel:
+                return False
+        
+        return True
+    
     def keyPressEvent(self, event: QKeyEvent):
         """Handle global keyboard shortcuts."""
         if event.key() == Qt.Key_F1:
@@ -120,21 +155,21 @@ class MainWindow(QMainWindow):
         control_menu = menubar.addMenu("Control Panel")
         
         distributors_action = QAction("Distributors", self)
-        distributors_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.distributors_panel))
+        distributors_action.triggered.connect(lambda: self.navigate_to_panel(self.distributors_panel))
         control_menu.addAction(distributors_action)
         
         parties_action = QAction("Parties", self)
-        parties_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.parties_panel))
+        parties_action.triggered.connect(lambda: self.navigate_to_panel(self.parties_panel))
         control_menu.addAction(parties_action)
         
         products_action = QAction("Products", self)
-        products_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.products_panel))
+        products_action.triggered.connect(lambda: self.navigate_to_panel(self.products_panel))
         control_menu.addAction(products_action)
         
         control_menu.addSeparator()
         
         settings_action = QAction("Settings", self)
-        settings_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_panel))
+        settings_action.triggered.connect(lambda: self.navigate_to_panel(self.settings_panel))
         control_menu.addAction(settings_action)
         
         # Transactions menu
@@ -317,23 +352,37 @@ class MainWindow(QMainWindow):
         scroll_area.setWidget(container)
         return scroll_area
     
+    def navigate_to_panel(self, panel):
+        """Navigate to a panel after checking for unsaved entries."""
+        if not self.check_unsaved_before_switch():
+            return
+        self.stacked_widget.setCurrentWidget(panel)
+    
     def show_purchase(self):
         """Show purchase window and refresh data."""
+        if not self.check_unsaved_before_switch():
+            return
         self.purchase_window.refresh_data()
         self.stacked_widget.setCurrentWidget(self.purchase_window)
     
     def show_sale(self):
         """Show sale window and refresh data."""
+        if not self.check_unsaved_before_switch():
+            return
         self.sale_window.refresh_data()
         self.stacked_widget.setCurrentWidget(self.sale_window)
     
     def show_stock(self):
         """Show stock window and refresh data."""
+        if not self.check_unsaved_before_switch():
+            return
         self.stock_window.refresh_data()
         self.stacked_widget.setCurrentWidget(self.stock_window)
     
     def show_reports(self):
         """Show reports window."""
+        if not self.check_unsaved_before_switch():
+            return
         self.stacked_widget.setCurrentWidget(self.reports_window)
     
     def eventFilter(self, obj, event):
