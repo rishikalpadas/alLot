@@ -325,9 +325,19 @@ class TicketsPanel(QWidget):
         if not serial_item or serial_item.text() != "*":
             return
         
-        # If name field was edited, save immediately
-        if col == 1 and item.text().strip():
-            self.save_new_row(row)
+        # Auto-capitalize the text as user types
+        if col == 1:
+            text = item.text()
+            uppercase_text = text.upper()
+            if text != uppercase_text:
+                # Block signals to avoid triggering itemChanged again
+                self.table.blockSignals(True)
+                item.setText(uppercase_text)
+                self.table.blockSignals(False)
+            
+            # If name field was edited, save immediately
+            if uppercase_text.strip():
+                self.save_new_row(row)
     
     def cancel_new_row(self):
         """Cancel and remove the new row being edited."""
