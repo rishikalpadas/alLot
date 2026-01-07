@@ -2,6 +2,7 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
                                QTableWidget, QTableWidgetItem, QHeaderView)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from services.inventory_service import InventoryService
 
 
@@ -67,5 +68,5 @@ class StockWindow(QWidget):
             
             status_item = QTableWidgetItem(status)
             status_item.setTextAlignment(Qt.AlignCenter)
-            status_item.setForeground(Qt.GlobalColor(color))
+            status_item.setForeground(QColor(color))
             self.table.setItem(row, 4, status_item)

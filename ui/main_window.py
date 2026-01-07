@@ -86,11 +86,31 @@ class MainWindow(QMainWindow):
         # Set default to dashboard home
         self.stacked_widget.setCurrentWidget(self.dashboard_home)
         
-        # Install global application-level event filter for Escape key
+        # Install global application-level event filter for Escape key and shortcuts
         # This catches all key events even if no widget has focus
         QApplication.instance().installEventFilter(self)
         
         self.showMaximized()
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle global keyboard shortcuts."""
+        if event.key() == Qt.Key_F1:
+            self.stacked_widget.setCurrentWidget(self.dashboard_home)
+            event.accept()
+        elif event.key() == Qt.Key_F2:
+            self.show_purchase()
+            event.accept()
+        elif event.key() == Qt.Key_F3:
+            self.show_sale()
+            event.accept()
+        elif event.key() == Qt.Key_F4:
+            self.show_stock()
+            event.accept()
+        elif event.key() == Qt.Key_F5:
+            self.stacked_widget.setCurrentWidget(self.control_panel_home)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
     
     def create_menu_bar(self):
         """Create menu bar."""
