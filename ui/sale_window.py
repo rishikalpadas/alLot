@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDate, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
-from database.models import Party, Product, Purchase
+from database.models import Party, Product, Purchase, Sale
 from database.db_manager import db_manager
 from services.pricing_service import PricingService
 from services.inventory_service import InventoryService
@@ -381,14 +381,12 @@ class SaleWindow(QWidget):
         return True, None
     
     def check_stock_availability(self, ticket_id, from_no, to_no, sale_date):
-        """Check if the sale range is within available purchased stock and sale date is on/before purchase date."""
+        """Check if the sale range is within available purchased stock after accounting for already-sold tickets."""
         session = db_manager.get_session()
         try:
             from datetime import datetime, time
-            from_dt = datetime.combine(sale_date, time.min)
-            to_dt = datetime.combine(sale_date, time.max)
             
-            # Get all purchases for this ticket (not just the current date)
+            # Get all purchases for this ticket
             all_purchases = session.query(Purchase).filter(
                 Purchase.product_id == ticket_id
             ).all()
@@ -396,7 +394,7 @@ class SaleWindow(QWidget):
             if not all_purchases:
                 return False, f"No stock available for this ticket"
             
-            # Extract all purchased ranges from notes and check date constraints
+            # Extract all purchased ranges and check date constraints
             purchased_ranges = []
             import re
             pattern = r"\|(\d+)-(\d+)\s*\|"
@@ -412,21 +410,94 @@ class SaleWindow(QWidget):
                         if m:
                             purch_from = int(m.group(1))
                             purch_to = int(m.group(2))
-                            purchased_ranges.append((purch_from, purch_to, purchase.purchase_date.date()))
+                            purchased_ranges.append((purch_from, purch_to))
             
             if not purchased_ranges:
                 return False, f"No valid stock for sale. All available tickets have draw dates before {sale_date.strftime('%d-%m-%y')}"
             
-            # Check if sale range is within any purchased range
-            for purch_from, purch_to, purch_date in purchased_ranges:
-                if from_no >= purch_from and to_no <= purch_to:
+            # Get all sales for this ticket to calculate remaining available stock
+            all_sales = session.query(Sale).filter(
+                Sale.product_id == ticket_id
+            ).all()
+            
+            sold_ranges = []
+            for sale in all_sales:
+                if sale.notes:
+                    for line in sale.notes.splitlines():
+                        m = re.search(pattern, line)
+                        if m:
+                            sold_from = int(m.group(1))
+                            sold_to = int(m.group(2))
+                            sold_ranges.append((sold_from, sold_to))
+            
+            # Calculate remaining available ranges by subtracting sold ranges from purchased ranges
+            available_ranges = self._subtract_ranges(purchased_ranges, sold_ranges)
+            
+            if not available_ranges:
+                return False, f"No stock available for this ticket. All stock has been sold."
+            
+            # Check if sale range is within any available range
+            for avail_from, avail_to in available_ranges:
+                if from_no >= avail_from and to_no <= avail_to:
                     return True, None
             
-            # Not found in any range
-            ranges_str = ", ".join([f"{f}-{t} (Draw: {d.strftime('%d-%m-%y')})" for f, t, d in purchased_ranges])
-            return False, f"Sale range {from_no}-{to_no} is not in stock. Available: {ranges_str}"
+            # Not found in any available range
+            ranges_str = ", ".join([f"{f}-{t}" for f, t in available_ranges])
+            return False, f"Sale range {from_no}-{to_no} is not available. Available: {ranges_str}"
         finally:
             session.close()
+    
+    def _subtract_ranges(self, purchased_ranges, sold_ranges):
+        """Calculate remaining available ranges by subtracting sold ranges from purchased ranges."""
+        if not sold_ranges:
+            return purchased_ranges
+        
+        # Merge overlapping purchased ranges
+        merged_purchased = self._merge_ranges(purchased_ranges)
+        # Merge overlapping sold ranges
+        merged_sold = self._merge_ranges(sold_ranges)
+        
+        remaining = []
+        for p_from, p_to in merged_purchased:
+            current_ranges = [(p_from, p_to)]
+            
+            # Subtract each sold range from current ranges
+            for s_from, s_to in merged_sold:
+                new_ranges = []
+                for c_from, c_to in current_ranges:
+                    # Check for overlap
+                    if s_to < c_from or s_from > c_to:
+                        # No overlap, keep the range
+                        new_ranges.append((c_from, c_to))
+                    else:
+                        # There's overlap, split the range
+                        if c_from < s_from:
+                            new_ranges.append((c_from, s_from - 1))
+                        if c_to > s_to:
+                            new_ranges.append((s_to + 1, c_to))
+                current_ranges = new_ranges
+            
+            remaining.extend(current_ranges)
+        
+        # Merge any overlapping resulting ranges
+        return self._merge_ranges(remaining)
+    
+    def _merge_ranges(self, ranges):
+        """Merge overlapping or adjacent ranges."""
+        if not ranges:
+            return []
+        
+        sorted_ranges = sorted(ranges)
+        merged = [sorted_ranges[0]]
+        
+        for current_from, current_to in sorted_ranges[1:]:
+            last_from, last_to = merged[-1]
+            if current_from <= last_to + 1:  # Overlapping or adjacent
+                merged[-1] = (last_from, max(last_to, current_to))
+            else:
+                merged.append((current_from, current_to))
+        
+        return merged
 
     def save_current_session(self):
         """Save current table entries to session storage."""
