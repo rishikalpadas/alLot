@@ -55,16 +55,32 @@ class DateRangeReportDialog(QDialog):
 
         # Results table
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(10)
+        dist_or_party = "Distributor Name" if self.mode == "purchase" else "Party Name"
         self.table.setHorizontalHeaderLabels([
-            "Date", "Name", "Ticket", "Series", "From", "To", "Qty", "Rate", "Amount"
+            "#", dist_or_party, "Draw Date", "Ticket", "Series", "From No.", "To No.", "Qty.", "Rate", "Amount"
         ])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setVisible(False)  # Hide the vertical row numbers
         layout.addWidget(self.table)
+        
+        # Totals section at the bottom
+        totals_layout = QHBoxLayout()
+        totals_layout.addStretch()
+        totals_layout.addWidget(QLabel("Total Qty:"))
+        self.total_qty_label = QLabel("0")
+        self.total_qty_label.setStyleSheet("font-weight: bold; font-size: 13px; margin-right: 20px;")
+        totals_layout.addWidget(self.total_qty_label)
+        totals_layout.addWidget(QLabel("Total Amount:"))
+        self.total_amount_label = QLabel("₹ 0.00")
+        self.total_amount_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2196F3;")
+        totals_layout.addWidget(self.total_amount_label)
+        layout.addLayout(totals_layout)
 
         # Initial load
         self.load_report()
@@ -140,15 +156,23 @@ class DateRangeReportDialog(QDialog):
                         total_amount += amount
                         r = self.table.rowCount()
                         self.table.insertRow(r)
-                        self.table.setItem(r, 0, QTableWidgetItem(date_val.strftime("%d-%m-%y")))
+                        # Column 0: Row number
+                        row_num_item = QTableWidgetItem(str(r + 1))
+                        row_num_item.setTextAlignment(Qt.AlignCenter)
+                        self.table.setItem(r, 0, row_num_item)
                         self.table.setItem(r, 1, QTableWidgetItem(name))
-                        self.table.setItem(r, 2, QTableWidgetItem(ticket))
-                        self.table.setItem(r, 3, QTableWidgetItem(series))
-                        self.table.setItem(r, 4, QTableWidgetItem(str(from_no)))
-                        self.table.setItem(r, 5, QTableWidgetItem(str(to_no)))
-                        self.table.setItem(r, 6, QTableWidgetItem(str(qty)))
-                        self.table.setItem(r, 7, QTableWidgetItem(f"{rate:.2f}"))
-                        self.table.setItem(r, 8, QTableWidgetItem(f"{amount:.2f}"))
+                        self.table.setItem(r, 2, QTableWidgetItem(date_val.strftime("%d-%m-%y")))
+                        self.table.setItem(r, 3, QTableWidgetItem(ticket))
+                        self.table.setItem(r, 4, QTableWidgetItem(series))
+                        self.table.setItem(r, 5, QTableWidgetItem(str(from_no)))
+                        self.table.setItem(r, 6, QTableWidgetItem(str(to_no)))
+                        self.table.setItem(r, 7, QTableWidgetItem(str(qty)))
+                        self.table.setItem(r, 8, QTableWidgetItem(f"{rate:.2f}"))
+                        self.table.setItem(r, 9, QTableWidgetItem(f"{amount:.2f}"))
+            
+            # Update totals labels
+            self.total_qty_label.setText(str(total_qty))
+            self.total_amount_label.setText(f"₹ {total_amount:,.2f}")
         finally:
             session.close()
 
@@ -164,9 +188,22 @@ class DateRangeReportDialog(QDialog):
             filter_name = self.filter_combo.currentText()
             title = f"{'Purchase' if self.mode == 'purchase' else 'Sale'} Report ({from_date} to {to_date}) - {filter_name}"
 
+            # Calculate totals from table
+            total_qty = 0
+            total_amount = 0.0
+            for row in range(self.table.rowCount()):
+                qty_item = self.table.item(row, 7)  # Qty column
+                amount_item = self.table.item(row, 9)  # Amount column
+                if qty_item:
+                    total_qty += int(qty_item.text())
+                if amount_item:
+                    total_amount += float(amount_item.text())
+
             # Build HTML table from current data
-            headers = ["Date", "Name", "Ticket", "Series", "From", "To", "Qty", "Rate", "Amount"]
-            html = ["<html><head><style>table { border-collapse: collapse; width: 100%; font-size: 10pt; } th, td { border: 1px solid #666; padding: 4px; text-align: left; } th { background: #eee; }</style></head><body>"]
+            dist_or_party = "Distributor Name" if self.mode == "purchase" else "Party Name"
+            headers = ["#", dist_or_party, "Draw Date", "Ticket", "Series", "From No.", "To No.", "Qty.", "Rate", "Amount"]
+            html = ["<html><head><style>table { border-collapse: collapse; width: 100%; font-size: 10pt; } th, td { border: 1px solid #666; padding: 4px; text-align: left; } th { background: #eee; } .company-name { text-align: center; font-size: 18pt; font-weight: bold; margin-bottom: 10px; } .totals { text-align: right; font-weight: bold; margin-top: 15px; font-size: 11pt; }</style></head><body>"]
+            html.append("<div class='company-name'>UTTARAN ENTERPRISE</div>")
             html.append(f"<h3>{title}</h3>")
             html.append("<table><tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
             for row in range(self.table.rowCount()):
@@ -176,7 +213,9 @@ class DateRangeReportDialog(QDialog):
                     text = item.text() if item else ""
                     html.append(f"<td>{text}</td>")
                 html.append("</tr>")
-            html.append("</table></body></html>")
+            html.append("</table>")
+            html.append(f"<div class='totals'>Total Qty: {total_qty} &nbsp;&nbsp;&nbsp; Total Amount: ₹ {total_amount:,.2f}</div>")
+            html.append("</body></html>")
 
             doc = QTextDocument()
             doc.setHtml("".join(html))

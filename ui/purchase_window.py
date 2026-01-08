@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QDoubleSpinBox, QHeaderView, QSpinBox
 )
 from PySide6.QtCore import Qt, QDate, QRegularExpression
-from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtGui import QRegularExpressionValidator, QShortcut, QKeySequence
 from database.models import Distributor, Product
 from database.db_manager import db_manager
 from services.pricing_service import PricingService
@@ -118,6 +118,16 @@ class PurchaseWindow(QWidget):
         
         # Install event filter on self to catch F9/F10 globally
         self.installEventFilter(self)
+        
+        # Create keyboard shortcuts for F6, F9, and F10 that work globally
+        self.f6_shortcut = QShortcut(QKeySequence(Qt.Key_F6), self)
+        self.f6_shortcut.activated.connect(self.open_report)
+        
+        self.f9_shortcut = QShortcut(QKeySequence(Qt.Key_F9), self)
+        self.f9_shortcut.activated.connect(lambda: (self.save_current_session(), self.clear_session()))
+        
+        self.f10_shortcut = QShortcut(QKeySequence(Qt.Key_F10), self)
+        self.f10_shortcut.activated.connect(self.save_purchase)
 
     def refresh_data(self):
         """Load distributors and tickets (products)."""
