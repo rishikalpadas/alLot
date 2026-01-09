@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDate, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
+from datetime import date
 from database.models import Party, Product, Purchase, Sale
 from database.db_manager import db_manager
 from services.pricing_service import PricingService
@@ -65,6 +66,7 @@ class SaleWindow(QWidget):
         date_layout.addWidget(date_label)
         self.date_edit = QDateEdit()
         self.date_edit.setDate(QDate.currentDate())
+        self.date_edit.setMinimumDate(QDate.currentDate())  # Can't select past dates
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setMinimumWidth(150)
         self.date_edit.setMinimumHeight(40)
@@ -638,6 +640,14 @@ class SaleWindow(QWidget):
 
         party_id = self.party_combo.currentData()
         sale_date = self.date_edit.date().toPython()
+        
+        # Prevent sales with draw dates in the past (can only sell on or before draw date)
+        if sale_date < date.today():
+            QMessageBox.warning(self, "Validation Error", 
+                              f"Cannot add sale for draw date {sale_date.strftime('%d-%m-%y')} as it is in the past. "
+                              f"Sales can only be added on or before the draw date.")
+            return
+        
         notes = "\n".join(notes_rows) if notes_rows else None
 
         success, message, _sid = InventoryService.create_sale(
