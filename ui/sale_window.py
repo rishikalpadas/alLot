@@ -381,60 +381,68 @@ class SaleWindow(QWidget):
         return True, None
     
     def check_stock_availability(self, ticket_id, from_no, to_no, sale_date):
-        """Check if the sale range is within available purchased stock after accounting for already-sold tickets."""
+        """Check if the sale range is within available purchased stock for the exact draw date."""
         session = db_manager.get_session()
         try:
-            from datetime import datetime, time
+            from sqlalchemy import func
+            import re
             
-            # Get all purchases for this ticket
-            all_purchases = session.query(Purchase).filter(
-                Purchase.product_id == ticket_id
+            # Get the ticket name for matching in notes
+            product = session.query(Product).filter(Product.id == ticket_id).first()
+            if not product:
+                return False, "Ticket not found"
+            
+            ticket_name = product.name
+            
+            # Get purchases for the EXACT draw date (purchase_date)
+            purchases = session.query(Purchase).filter(
+                func.date(Purchase.purchase_date) == sale_date
             ).all()
             
-            if not all_purchases:
-                return False, f"No stock available for this ticket"
+            if not purchases:
+                return False, f"No stock available for draw date {sale_date.strftime('%d-%m-%y')}"
             
-            # Extract all purchased ranges and check date constraints
+            # Extract purchased ranges for THIS ticket from matching draw date
             purchased_ranges = []
-            import re
-            pattern = r"\|(\d+)-(\d+)\s*\|"
+            # Pattern: Ticket Name | Series XXX | from-to | Qty N @ rate
+            pattern = r'^(.+?)\s*\|\s*Series\s+(\w*)\s*\|\s*(\d+)-(\d+)\s*\|'
             
-            for purchase in all_purchases:
-                # Check if sale_date is on or before purchase (draw) date
-                if sale_date > purchase.purchase_date.date():
-                    continue  # Skip this purchase, sale date is after draw date
-                
+            for purchase in purchases:
                 if purchase.notes:
-                    for line in purchase.notes.splitlines():
-                        m = re.search(pattern, line)
-                        if m:
-                            purch_from = int(m.group(1))
-                            purch_to = int(m.group(2))
-                            purchased_ranges.append((purch_from, purch_to))
+                    for line in purchase.notes.split('\n'):
+                        match = re.match(pattern, line)
+                        if match:
+                            line_ticket = match.group(1).strip()
+                            if line_ticket == ticket_name:
+                                purch_from = int(match.group(3))
+                                purch_to = int(match.group(4))
+                                purchased_ranges.append((purch_from, purch_to))
             
             if not purchased_ranges:
-                return False, f"No valid stock for sale. All available tickets have draw dates before {sale_date.strftime('%d-%m-%y')}"
+                return False, f"No stock of '{ticket_name}' for draw date {sale_date.strftime('%d-%m-%y')}"
             
-            # Get all sales for this ticket to calculate remaining available stock
-            all_sales = session.query(Sale).filter(
-                Sale.product_id == ticket_id
+            # Get sales for this ticket and draw date
+            sales = session.query(Sale).filter(
+                func.date(Sale.sale_date) == sale_date
             ).all()
             
             sold_ranges = []
-            for sale in all_sales:
+            for sale in sales:
                 if sale.notes:
-                    for line in sale.notes.splitlines():
-                        m = re.search(pattern, line)
-                        if m:
-                            sold_from = int(m.group(1))
-                            sold_to = int(m.group(2))
-                            sold_ranges.append((sold_from, sold_to))
+                    for line in sale.notes.split('\n'):
+                        match = re.match(pattern, line)
+                        if match:
+                            line_ticket = match.group(1).strip()
+                            if line_ticket == ticket_name:
+                                sold_from = int(match.group(3))
+                                sold_to = int(match.group(4))
+                                sold_ranges.append((sold_from, sold_to))
             
-            # Calculate remaining available ranges by subtracting sold ranges from purchased ranges
+            # Calculate remaining available ranges
             available_ranges = self._subtract_ranges(purchased_ranges, sold_ranges)
             
             if not available_ranges:
-                return False, f"No stock available for this ticket. All stock has been sold."
+                return False, f"No stock available. All '{ticket_name}' for {sale_date.strftime('%d-%m-%y')} has been sold."
             
             # Check if sale range is within any available range
             for avail_from, avail_to in available_ranges:
@@ -443,7 +451,7 @@ class SaleWindow(QWidget):
             
             # Not found in any available range
             ranges_str = ", ".join([f"{f}-{t}" for f, t in available_ranges])
-            return False, f"Sale range {from_no}-{to_no} is not available. Available: {ranges_str}"
+            return False, f"Range {from_no}-{to_no} not available. Available ranges for {sale_date.strftime('%d-%m-%y')}: {ranges_str}"
         finally:
             session.close()
     
