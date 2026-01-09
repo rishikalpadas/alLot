@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QDoubleSpinBox, QHeaderView, QSpinBox
 )
 from PySide6.QtCore import Qt, QDate, QRegularExpression
+from datetime import date
 from PySide6.QtGui import QRegularExpressionValidator, QShortcut, QKeySequence
 from database.models import Distributor, Product
 from database.db_manager import db_manager
@@ -65,6 +66,7 @@ class PurchaseWindow(QWidget):
         date_layout.addWidget(date_label)
         self.date_edit = QDateEdit()
         self.date_edit.setDate(QDate.currentDate())
+        self.date_edit.setMinimumDate(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setMinimumWidth(150)
         self.date_edit.setMinimumHeight(40)
@@ -510,6 +512,11 @@ class PurchaseWindow(QWidget):
 
         distributor_id = self.distributor_combo.currentData()
         purchase_date = self.date_edit.date().toPython()
+
+        # Prevent back-dated purchases (must be today or later)
+        if purchase_date < date.today():
+            QMessageBox.warning(self, "Validation Error", "Purchase date cannot be before today.")
+            return
         notes = "\n".join(notes_rows) if notes_rows else None
 
         success, message, _pid = InventoryService.create_purchase(
