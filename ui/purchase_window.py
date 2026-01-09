@@ -505,7 +505,7 @@ class PurchaseWindow(QWidget):
             "Confirm Save", 
             f"Do you want to save {len(items)} purchase entry(ies)?",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.Yes  # Default focus on Yes
         )
         if reply != QMessageBox.Yes:
             return
