@@ -43,37 +43,58 @@ class StockWindow(QWidget):
         dist_layout.addWidget(self.distributor_combo)
         filter_layout.addLayout(dist_layout)
 
-        date_layout = QVBoxLayout()
-        date_layout.setSpacing(8)
-        date_label = QLabel("Draw Date*:")
-        date_label.setStyleSheet("font-size: 13px; font-weight: 600;")
-        date_layout.addWidget(date_label)
-        self.date_edit = QDateEdit()
-        self.date_edit.setDate(QDate.currentDate())
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setMinimumWidth(150)
-        self.date_edit.setMinimumHeight(40)
-        self.date_edit.setStyleSheet("font-size: 12px; padding: 8px;")
-        date_layout.addWidget(self.date_edit)
-        filter_layout.addLayout(date_layout)
+        from_date_layout = QVBoxLayout()
+        from_date_layout.setSpacing(8)
+        from_date_label = QLabel("From Date*:")
+        from_date_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        from_date_layout.addWidget(from_date_label)
+        self.from_date_edit = QDateEdit()
+        self.from_date_edit.setDate(QDate.currentDate())
+        self.from_date_edit.setCalendarPopup(True)
+        self.from_date_edit.setMinimumWidth(150)
+        self.from_date_edit.setMinimumHeight(40)
+        self.from_date_edit.setStyleSheet("font-size: 12px; padding: 8px;")
+        from_date_layout.addWidget(self.from_date_edit)
+        filter_layout.addLayout(from_date_layout)
 
-        submit_btn = QPushButton("Submit")
-        submit_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px 24px; margin-top: 20px;")
-        submit_btn.clicked.connect(self.load_stock)
-        filter_layout.addWidget(submit_btn)
+        to_date_layout = QVBoxLayout()
+        to_date_layout.setSpacing(8)
+        to_date_label = QLabel("To Date*:")
+        to_date_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        to_date_layout.addWidget(to_date_label)
+        self.to_date_edit = QDateEdit()
+        self.to_date_edit.setDate(QDate.currentDate())
+        self.to_date_edit.setCalendarPopup(True)
+        self.to_date_edit.setMinimumWidth(150)
+        self.to_date_edit.setMinimumHeight(40)
+        self.to_date_edit.setStyleSheet("font-size: 12px; padding: 8px;")
+        to_date_layout.addWidget(self.to_date_edit)
+        filter_layout.addLayout(to_date_layout)
+
+        self.submit_btn = QPushButton("Submit")
+        self.submit_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px 24px; margin-top: 20px;")
+        self.submit_btn.clicked.connect(self.load_stock)
+        filter_layout.addWidget(self.submit_btn)
 
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
+        
+        # Connect key press handlers after widgets are created
+        self.distributor_combo.installEventFilter(self)
+        self.from_date_edit.installEventFilter(self)
+        self.to_date_edit.installEventFilter(self)
+        self.submit_btn.installEventFilter(self)
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
-            "#", "Ticket", "Series", "From No.", "To No.", "Qty", "Rate", "Amount"
+            "#", "Distributor", "Ticket", "Series", "From No.", "To No.", "Qty", "Rate", "Amount"
         ])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
@@ -91,11 +112,17 @@ class StockWindow(QWidget):
         totals_layout.addWidget(self.total_amount_label)
         layout.addLayout(totals_layout)
 
+        # Set tab order
+        self.setTabOrder(self.distributor_combo, self.from_date_edit)
+        self.setTabOrder(self.from_date_edit, self.to_date_edit)
+        self.setTabOrder(self.to_date_edit, self.submit_btn)
+
     def refresh_data(self):
         """Load distributors."""
         session = db_manager.get_session()
         try:
             self.distributor_combo.clear()
+            self.distributor_combo.addItem("All Distributors", None)
             for dist in session.query(Distributor).all():
                 self.distributor_combo.addItem(dist.name, dist.id)
         finally:
@@ -105,25 +132,34 @@ class StockWindow(QWidget):
         self.distributor_combo.setFocus()
 
     def load_stock(self):
-        """Load stock for selected distributor and draw date."""
-        if not self.distributor_combo.currentData():
-            QMessageBox.warning(self, "Validation Error", "Please select a distributor.")
-            return
-
+        """Load stock for selected distributor and date range."""
         distributor_id = self.distributor_combo.currentData()
-        draw_date = self.date_edit.date().toPython()
+        from_date = self.from_date_edit.date().toPython()
+        to_date = self.to_date_edit.date().toPython()
+
+        if from_date > to_date:
+            QMessageBox.warning(self, "Validation Error", "From Date cannot be after To Date.")
+            return
 
         session = db_manager.get_session()
         try:
-            # Get purchases for this distributor and draw date
-            purchases = session.query(Purchase).filter(
-                Purchase.distributor_id == distributor_id,
-                Purchase.purchase_date == draw_date
-            ).all()
+            # Get purchases for distributor(s) and date range
+            from sqlalchemy import func
+            purchase_query = session.query(Purchase).filter(
+                func.date(Purchase.purchase_date) >= from_date,
+                func.date(Purchase.purchase_date) <= to_date
+            )
+            
+            # If specific distributor selected, filter by it
+            if distributor_id is not None:
+                purchase_query = purchase_query.filter(Purchase.distributor_id == distributor_id)
+            
+            purchases = purchase_query.all()
 
-            # Get sales for this draw date (any party)
+            # Get sales for this date range (any party)
             sales = session.query(Sale).filter(
-                Sale.sale_date == draw_date
+                func.date(Sale.sale_date) >= from_date,
+                func.date(Sale.sale_date) <= to_date
             ).all()
 
             # Parse purchase entries from notes
@@ -135,6 +171,7 @@ class StockWindow(QWidget):
                         if parsed:
                             parsed['type'] = 'purchase'
                             parsed['purchase_id'] = purchase.id
+                            parsed['distributor_name'] = purchase.distributor.name
                             purchase_entries.append(parsed)
 
             # Parse sale entries from notes
@@ -156,14 +193,15 @@ class StockWindow(QWidget):
             session.close()
 
     def parse_entry_line(self, line):
-        """Parse a note line like 'Ticket Name | Series 61A | 1-100 | Qty 100 @ 5.00'"""
+        """Parse a note line like 'Ticket Name | Series 61A | 1-100 | Qty 100 @ 5.00' or 'D10 | Series  | 45450-45499 | Qty 500 @ 6.44'"""
         # Pattern: Ticket Name | Series XXX | from-to | Qty N @ rate
-        pattern = r'^(.+?)\s*\|\s*Series\s+(\w+)\s*\|\s*(\d+)-(\d+)\s*\|\s*Qty\s+(\d+)\s*@\s*([\d.]+)'
+        # Series field can be empty/spaces or contain alphanumeric code
+        pattern = r'^(.+?)\s*\|\s*Series\s+(\w*)\s*\|\s*(\d+)-(\d+)\s*\|\s*Qty\s+(\d+)\s*@\s*([\d.]+)'
         match = re.match(pattern, line)
         if match:
             return {
                 'ticket': match.group(1).strip(),
-                'series': match.group(2),
+                'series': match.group(2) if match.group(2) else '',
                 'from_no': int(match.group(3)),
                 'to_no': int(match.group(4)),
                 'qty': int(match.group(5)),
@@ -183,45 +221,66 @@ class StockWindow(QWidget):
             idx_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 0, idx_item)
 
+            # Distributor
+            self.table.setItem(row, 1, QTableWidgetItem(entry.get('distributor_name', '')))
+
             # Ticket
-            self.table.setItem(row, 1, QTableWidgetItem(entry['ticket']))
+            self.table.setItem(row, 2, QTableWidgetItem(entry['ticket']))
 
             # Series
             series_item = QTableWidgetItem(entry['series'])
             series_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 2, series_item)
+            self.table.setItem(row, 3, series_item)
 
             # From No.
             from_item = QTableWidgetItem(str(entry['from_no']))
             from_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 3, from_item)
+            self.table.setItem(row, 4, from_item)
 
             # To No.
             to_item = QTableWidgetItem(str(entry['to_no']))
             to_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 4, to_item)
+            self.table.setItem(row, 5, to_item)
 
             # Qty
             qty_item = QTableWidgetItem(str(entry['qty']))
             qty_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 5, qty_item)
+            self.table.setItem(row, 6, qty_item)
 
             # Rate
             rate_item = QTableWidgetItem(f"₹ {entry['rate']:.2f}")
             rate_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 6, rate_item)
+            self.table.setItem(row, 7, rate_item)
 
             # Amount
             amount = entry['qty'] * entry['rate']
             amount_item = QTableWidgetItem(f"₹ {amount:,.2f}")
             amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 7, amount_item)
+            self.table.setItem(row, 8, amount_item)
 
             total_qty += entry['qty']
             total_amount += amount
 
         self.total_qty_label.setText(f"Total Qty: {total_qty}")
         self.total_amount_label.setText(f"₹ {total_amount:,.2f}")
+    
+    def eventFilter(self, obj, event):
+        """Handle Enter key for combo box and date edits."""
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                print(f"DEBUG: Enter key pressed on {obj.__class__.__name__}")
+                
+                # If on to_date_edit or submit button, trigger submit
+                if obj == self.to_date_edit or obj == self.submit_btn:
+                    print("DEBUG: Triggering load_stock")
+                    self.load_stock()
+                    return True
+                # Otherwise move to next field
+                print("DEBUG: Moving to next field")
+                self.focusNextChild()
+                return True
+        return super().eventFilter(obj, event)
     
     def keyPressEvent(self, event):
         """Handle Enter key to move between fields."""
