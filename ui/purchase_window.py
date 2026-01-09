@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate, QRegularExpression
 from datetime import date
 from PySide6.QtGui import QRegularExpressionValidator, QShortcut, QKeySequence
-from database.models import Distributor, Product
+from database.models import Distributor, Product, Purchase
 from database.db_manager import db_manager
 from services.pricing_service import PricingService
 from services.inventory_service import InventoryService
