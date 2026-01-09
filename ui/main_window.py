@@ -391,26 +391,34 @@ class MainWindow(QMainWindow):
         if event.type() == QEvent.Type.KeyPress:
             key_event = QKeyEvent(event)
             if key_event.key() == Qt.Key_Escape:
-                # First, try to remove any new rows being edited
+                # Let active modal dialogs handle Escape (e.g., Quick View, report dialogs)
+                active_modal = QApplication.instance().activeModalWidget()
+                if active_modal:
+                    print("[Escape] Passing to active modal:", active_modal.objectName() or active_modal.__class__.__name__)
+                    return False
+
+                handled_escape = False
+                # First, try to remove any new rows being edited in control panel tables
                 for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
                     if hasattr(panel, 'table') and hasattr(panel, 'removing_row'):
-                        # Check if there's a new row being edited
                         for row in range(panel.table.rowCount()):
                             serial_item = panel.table.item(row, 0)
                             if serial_item and serial_item.text() == "*":
-                                # Remove the new row
                                 if not panel.removing_row:
+                                    print(f"[Escape] Removing new row in {panel.__class__.__name__} at row {row}")
                                     panel.removing_row = True
                                     panel.table.closePersistentEditor(panel.table.currentItem())
                                     panel.table.removeRow(row)
                                     panel.removing_row = False
                                     return True
-                
-                # If no new row found, clear all selections
+
+                # If no new row found, clear all selections in control panel tables
                 for panel in [self.distributors_panel, self.parties_panel, self.products_panel]:
                     if hasattr(panel, 'table') and panel.table.selectedItems():
+                        print(f"[Escape] Clearing selection in {panel.__class__.__name__}")
                         panel.table.clearSelection()
-                return True
+                        handled_escape = True
+                return handled_escape
         
         # Handle mouse clicks outside tables
         if event.type() == QEvent.Type.MouseButtonPress:

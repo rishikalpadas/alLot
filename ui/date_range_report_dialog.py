@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDateEdit, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QPainter, QTextDocument
+from PySide6.QtGui import QPainter, QTextDocument, QShortcut, QKeySequence
 from PySide6.QtPrintSupport import QPrinter, QPrintDialog
 from database.db_manager import db_manager
 from database.models import Distributor, Party, Product, Purchase, Sale
@@ -84,6 +84,14 @@ class DateRangeReportDialog(QDialog):
 
         # Initial load
         self.load_report()
+
+        # Allow Escape to close the dialog explicitly with a debug log
+        esc_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        esc_shortcut.activated.connect(self._on_escape)
+
+    def _on_escape(self):
+        print(f"[Escape] Closing {self.windowTitle()} dialog")
+        self.reject()
 
     def parse_entry_line(self, line):
         # Expected format: "<Ticket> | Series <SER> | <from>-<to> | Qty <qty> @ <rate>"

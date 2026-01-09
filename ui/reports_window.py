@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
                                QComboBox, QDateEdit, QMessageBox, QFileDialog, QGroupBox, QFormLayout)
 from PySide6.QtCore import Qt, QDate
+from PySide6.QtGui import QShortcut, QKeySequence
 from services.report_service import ReportService
 from database.models import Distributor, Party
 from database.db_manager import db_manager
@@ -84,6 +85,9 @@ class ReportsWindow(QWidget):
         
         # Load distributors and parties
         self.load_filters()
+
+        # Close on Escape
+        QShortcut(QKeySequence("Escape"), self).activated.connect(self.close)
     
     def load_filters(self):
         """Load distributors and parties for filters."""
