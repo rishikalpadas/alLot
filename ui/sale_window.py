@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QDoubleSpinBox, QHeaderView, QSpinBox
 )
 from PySide6.QtCore import Qt, QDate, QRegularExpression
-from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtGui import QRegularExpressionValidator, QShortcut, QKeySequence
 from datetime import date
 from database.models import Party, Product, Purchase, Sale
 from database.db_manager import db_manager
@@ -120,6 +120,10 @@ class SaleWindow(QWidget):
         
         # Install event filter on self to catch F9/F10 globally
         self.installEventFilter(self)
+        
+        # Ctrl+Q for Quick View
+        self.quick_view_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        self.quick_view_shortcut.activated.connect(self.open_quick_view)
 
     def refresh_data(self):
         """Load parties and tickets (products)."""
@@ -146,6 +150,12 @@ class SaleWindow(QWidget):
         from .date_range_report_dialog import DateRangeReportDialog
         dlg = DateRangeReportDialog(self, mode="sale")
         dlg.exec()
+    
+    def open_quick_view(self):
+        """Open Quick View dialog."""
+        from ui.quick_view_dialog import QuickViewDialog
+        dialog = QuickViewDialog(self, current_screen='sale')
+        dialog.exec()
 
     def add_row(self):
         row = self.table.rowCount()

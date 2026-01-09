@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QDateEdit, QMessageBox
 )
 from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from database.models import Distributor, Purchase, Sale, Product
 from database.db_manager import db_manager
 import re
@@ -116,6 +116,10 @@ class StockWindow(QWidget):
         self.setTabOrder(self.distributor_combo, self.from_date_edit)
         self.setTabOrder(self.from_date_edit, self.to_date_edit)
         self.setTabOrder(self.to_date_edit, self.submit_btn)
+        
+        # Ctrl+Q for Quick View
+        self.quick_view_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        self.quick_view_shortcut.activated.connect(self.open_quick_view)
 
     def refresh_data(self):
         """Load distributors."""
@@ -391,6 +395,12 @@ class StockWindow(QWidget):
                 self.focusNextChild()
                 return True
         return super().eventFilter(obj, event)
+    
+    def open_quick_view(self):
+        """Open Quick View dialog."""
+        from ui.quick_view_dialog import QuickViewDialog
+        dialog = QuickViewDialog(self, current_screen='stock')
+        dialog.exec()
     
     def keyPressEvent(self, event):
         """Handle Enter key to move between fields."""

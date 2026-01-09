@@ -121,6 +121,10 @@ class PurchaseWindow(QWidget):
         # Install event filter on self to catch F9/F10 globally
         self.installEventFilter(self)
         
+        # Ctrl+Q for Quick View
+        self.quick_view_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        self.quick_view_shortcut.activated.connect(self.open_quick_view)
+        
         # Create keyboard shortcuts for F6, F9, and F10 that work globally
         self.f6_shortcut = QShortcut(QKeySequence(Qt.Key_F6), self)
         self.f6_shortcut.activated.connect(self.open_report)
@@ -156,6 +160,12 @@ class PurchaseWindow(QWidget):
         from .date_range_report_dialog import DateRangeReportDialog
         dlg = DateRangeReportDialog(self, mode="purchase")
         dlg.exec()
+    
+    def open_quick_view(self):
+        """Open Quick View dialog."""
+        from ui.quick_view_dialog import QuickViewDialog
+        dialog = QuickViewDialog(self, current_screen='purchase')
+        dialog.exec()
 
     def add_row(self):
         row = self.table.rowCount()
