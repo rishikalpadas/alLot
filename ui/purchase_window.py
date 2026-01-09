@@ -379,7 +379,59 @@ class PurchaseWindow(QWidget):
             return False, "Invalid range: To No. must be >= From No., both > 0."
         if rate_spin is None or rate_spin.value() <= 0:
             return False, "Rate must be greater than 0."
+        
+        # Check for duplicate entry in existing purchases for same draw date
+        ticket_id = ticket_combo.currentData()
+        from_no = from_spin.value()
+        to_no = to_spin.value()
+        draw_date = self.date_edit.date().toPython()
+        
+        is_duplicate, err = self.check_duplicate_purchase(ticket_id, from_no, to_no, draw_date)
+        if is_duplicate:
+            return False, err
+        
         return True, None
+    
+    def check_duplicate_purchase(self, ticket_id, from_no, to_no, draw_date):
+        """Check if this purchase range already exists for the same draw date and ticket."""
+        session = db_manager.get_session()
+        try:
+            from sqlalchemy import func
+            import re
+            
+            # Get the ticket name
+            product = session.query(Product).filter(Product.id == ticket_id).first()
+            if not product:
+                return False, None
+            
+            ticket_name = product.name
+            
+            # Get all purchases for this draw date
+            purchases = session.query(Purchase).filter(
+                func.date(Purchase.purchase_date) == draw_date
+            ).all()
+            
+            # Pattern to parse entries
+            pattern = r'^(.+?)\s*\|\s*Series\s+(\w*)\s*\|\s*(\d+)-(\d+)\s*\|'
+            
+            for purchase in purchases:
+                if purchase.notes:
+                    for line in purchase.notes.split('\n'):
+                        match = re.match(pattern, line)
+                        if match:
+                            line_ticket = match.group(1).strip()
+                            existing_from = int(match.group(3))
+                            existing_to = int(match.group(4))
+                            
+                            # Check if same ticket and overlapping range
+                            if line_ticket == ticket_name:
+                                # Check for any overlap
+                                if not (to_no < existing_from or from_no > existing_to):
+                                    return True, f"Range {from_no}-{to_no} overlaps with existing purchase {existing_from}-{existing_to} for {ticket_name} on {draw_date.strftime('%d-%m-%y')}"
+            
+            return False, None
+        finally:
+            session.close()
 
     def save_current_session(self):
         """Save current table entries to session storage."""

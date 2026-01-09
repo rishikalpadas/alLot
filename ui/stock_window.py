@@ -172,6 +172,7 @@ class StockWindow(QWidget):
                             parsed['type'] = 'purchase'
                             parsed['purchase_id'] = purchase.id
                             parsed['distributor_name'] = purchase.distributor.name
+                            parsed['purchase_date'] = purchase.purchase_date.date()
                             purchase_entries.append(parsed)
 
             # Parse sale entries from notes
@@ -183,14 +184,114 @@ class StockWindow(QWidget):
                         if parsed:
                             parsed['type'] = 'sale'
                             parsed['sale_id'] = sale.id
+                            parsed['sale_date'] = sale.sale_date.date()
                             sale_entries.append(parsed)
 
-            # For simplicity, show only purchases (remaining stock calculation would be complex)
-            # In a production system, you'd want proper range tracking
-            self.display_entries(purchase_entries)
+            # Calculate remaining stock by subtracting sold ranges from purchased ranges
+            remaining_stock = self.calculate_remaining_stock(purchase_entries, sale_entries)
+            self.display_entries(remaining_stock)
 
         finally:
             session.close()
+    
+    def calculate_remaining_stock(self, purchase_entries, sale_entries):
+        """Calculate remaining stock by subtracting sold ranges from purchased ranges."""
+        # Group purchases by ticket, series, and date
+        from collections import defaultdict
+        purchase_groups = defaultdict(list)
+        
+        for entry in purchase_entries:
+            key = (entry['ticket'], entry['series'], entry['purchase_date'])
+            purchase_groups[key].append(entry)
+        
+        # Group sales by ticket, series, and date
+        sale_groups = defaultdict(list)
+        for entry in sale_entries:
+            key = (entry['ticket'], entry['series'], entry['sale_date'])
+            sale_groups[key].append(entry)
+        
+        # Calculate remaining stock for each group
+        remaining = []
+        for key, purchases in purchase_groups.items():
+            ticket, series, draw_date = key
+            
+            # Get all purchased ranges for this group
+            purchased_ranges = [(p['from_no'], p['to_no']) for p in purchases]
+            
+            # Get all sold ranges for this group
+            sold_ranges = [(s['from_no'], s['to_no']) for s in sale_groups.get(key, [])]
+            
+            # Calculate remaining ranges
+            available_ranges = self._subtract_ranges(purchased_ranges, sold_ranges)
+            
+            # Create entries for each remaining range
+            for from_no, to_no in available_ranges:
+                qty = to_no - from_no + 1
+                # Use the first purchase entry as template
+                template = purchases[0]
+                remaining.append({
+                    'ticket': ticket,
+                    'series': series,
+                    'from_no': from_no,
+                    'to_no': to_no,
+                    'qty': qty,
+                    'rate': template['rate'],
+                    'distributor_name': template['distributor_name']
+                })
+        
+        return remaining
+    
+    def _subtract_ranges(self, purchased_ranges, sold_ranges):
+        """Calculate remaining available ranges by subtracting sold ranges from purchased ranges."""
+        if not sold_ranges:
+            return purchased_ranges
+        
+        # Merge overlapping purchased ranges
+        merged_purchased = self._merge_ranges(purchased_ranges)
+        # Merge overlapping sold ranges
+        merged_sold = self._merge_ranges(sold_ranges)
+        
+        remaining = []
+        for p_from, p_to in merged_purchased:
+            current_ranges = [(p_from, p_to)]
+            
+            # Subtract each sold range from current ranges
+            for s_from, s_to in merged_sold:
+                new_ranges = []
+                for c_from, c_to in current_ranges:
+                    # Check for overlap
+                    if s_to < c_from or s_from > c_to:
+                        # No overlap, keep the range
+                        new_ranges.append((c_from, c_to))
+                    else:
+                        # There's overlap, split the range
+                        if c_from < s_from:
+                            new_ranges.append((c_from, s_from - 1))
+                        if c_to > s_to:
+                            new_ranges.append((s_to + 1, c_to))
+                current_ranges = new_ranges
+            
+            remaining.extend(current_ranges)
+        
+        # Merge any overlapping resulting ranges
+        return self._merge_ranges(remaining)
+    
+    def _merge_ranges(self, ranges):
+        """Merge overlapping or adjacent ranges."""
+        if not ranges:
+            return []
+        
+        sorted_ranges = sorted(ranges)
+        merged = [sorted_ranges[0]]
+        
+        for current_from, current_to in sorted_ranges[1:]:
+            last_from, last_to = merged[-1]
+            if current_from <= last_to + 1:  # Overlapping or adjacent
+                merged[-1] = (last_from, max(last_to, current_to))
+            else:
+                merged.append((current_from, current_to))
+        
+        return merged
 
     def parse_entry_line(self, line):
         """Parse a note line like 'Ticket Name | Series 61A | 1-100 | Qty 100 @ 5.00' or 'D10 | Series  | 45450-45499 | Qty 500 @ 6.44'"""
