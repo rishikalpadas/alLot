@@ -226,7 +226,10 @@ class StockWindow(QWidget):
             
             # Create entries for each remaining range
             for from_no, to_no in available_ranges:
-                qty = to_no - from_no + 1
+                base_qty = to_no - from_no + 1
+                # Extract ticket multiplier from ticket name (e.g., M5 -> 5, D10 -> 10, E200 -> 200)
+                multiplier = self.extract_ticket_multiplier(ticket)
+                qty = base_qty * multiplier
                 # Use the first purchase entry as template
                 template = purchases[0]
                 remaining.append({
@@ -240,6 +243,12 @@ class StockWindow(QWidget):
                 })
         
         return remaining
+    
+    def extract_ticket_multiplier(self, ticket_name):
+        """Extract numeric multiplier from ticket name (e.g., 'M5' -> 5, 'D10' -> 10)."""
+        import re
+        match = re.search(r'\d+', ticket_name)
+        return int(match.group()) if match else 1
     
     def _subtract_ranges(self, purchased_ranges, sold_ranges):
         """Calculate remaining available ranges by subtracting sold ranges from purchased ranges."""
